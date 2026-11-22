@@ -50,7 +50,7 @@ class LauncherTests(unittest.TestCase):
             args, kwargs = popen.call_args
             self.assertEqual(args[0][-2:], ["--", str(game.resolve())])
             self.assertFalse(kwargs["shell"])
-            self.assertEqual(kwargs["cwd"], str(exe.parent))
+            self.assertEqual(kwargs["cwd"], str(exe.resolve().parent))
 
     @patch("ps2studio.launcher.subprocess.Popen", side_effect=OSError("not executable"))
     def test_process_error_is_wrapped(self, _):
