@@ -67,6 +67,11 @@ class WebsiteTests(unittest.TestCase):
             self.assertIn(label, manual)
         self.assertIn('href="/guias/uso/"', (ROOT / "index.html").read_text(encoding="utf8"))
 
+    def test_external_blog_navigation(self):
+        blog_url = "https://ps2studio-guias.blogspot.com/"
+        for file in ROOT.rglob("index.html"):
+            self.assertIn(blog_url, file.read_text(encoding="utf8"), file)
+
     def test_download_and_legal_text(self):
         download = (ROOT/"descargar/index.html").read_text(encoding="utf8")
         self.assertIn("/releases/download/preview/PS2Studio-Windows.zip", download)
