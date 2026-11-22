@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://ps2-studio-windows.kiikoo1995.workers.dev/sitemap.xml
