@@ -34,8 +34,9 @@ Al subir este código a un repositorio de GitHub, el flujo
 crea un ejecutable mediante PyInstaller. El archivo `PS2Studio.exe` aparecerá
 como artefacto **PS2Studio-Windows** en la ejecución de GitHub Actions.
 
-**Importante:** el ejecutable todavía no existe hasta que el flujo se ejecute
-correctamente en Windows. El archivo será un lanzador, no una copia de PCSX2.
+**Descarga disponible:** [versión preliminar de Windows](https://github.com/kiikoo1995-ops/ps2-studio-windows/releases/tag/preview) generada por GitHub Actions. Es un lanzador, no una copia de PCSX2.
+
+**Web pública gratuita:** https://ps2-studio-windows.kiikoo1995.workers.dev/ · [Manual de PS2 Studio](https://ps2-studio-windows.kiikoo1995.workers.dev/guias/uso/).
 
 ## Pruebas locales
 

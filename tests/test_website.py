@@ -31,7 +31,7 @@ class Parser(HTMLParser):
 class WebsiteTests(unittest.TestCase):
     def test_html_metadata_links_and_no_tracking(self):
         pages = list(ROOT.rglob("*.html"))
-        self.assertGreaterEqual(len(pages), 10)
+        self.assertGreaterEqual(len(pages), 11)
         for file in pages:
             with self.subTest(page=file.as_posix()):
                 data = file.read_text(encoding="utf8")
@@ -60,6 +60,12 @@ class WebsiteTests(unittest.TestCase):
         self.assertEqual(set(locs), expected)
         self.assertEqual(len(locs), len(expected))
         self.assertIn("Sitemap: " + ORIGIN + "/sitemap.xml", (ROOT / "robots.txt").read_text(encoding="utf8"))
+
+    def test_program_manual(self):
+        manual = (ROOT / "guias/uso/index.html").read_text(encoding="utf8")
+        for label in ("Seleccionar PCSX2", "Añadir carpeta", "Quitar carpeta", "Actualizar", "Pantalla completa", "Subcarpetas", "Iniciar juego"):
+            self.assertIn(label, manual)
+        self.assertIn('href="/guias/uso/"', (ROOT / "index.html").read_text(encoding="utf8"))
 
     def test_download_and_legal_text(self):
         download = (ROOT/"descargar/index.html").read_text(encoding="utf8")
