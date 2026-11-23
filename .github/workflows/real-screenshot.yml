@@ -1,0 +1,38 @@
+name: Capture actual PS2 Studio UI demo
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths-ignore:
+      - "site/assets/app-real-demo.png"
+  pull_request:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  real-screenshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install Tk and virtual screen
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-tk python3-pil xvfb
+      - name: Render and capture running Tkinter app
+        run: PYTHONPATH=. xvfb-run -a /usr/bin/python3 tools/capture_app_demo.py
+      - name: Publish screenshot as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps2studio-real-demo-screenshot
+          path: site/assets/app-real-demo.png
+          if-no-files-found: error
+      - name: Add screenshot to public site after main merge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add site/assets/app-real-demo.png
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: refresh real Tkinter demo screenshot [skip ci]"
+            git push origin HEAD:main
+          fi

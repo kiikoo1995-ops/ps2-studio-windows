@@ -8,6 +8,7 @@ import webbrowser
 
 from .autodetect import find_pcsx2
 from .config import AppConfig, ConfigError, ConfigStore
+from .cover_art import CoverError, validate_cover, suggested_cover
 from .launcher import LaunchError, start_game
 from .library import Game, favorite_key, filter_games, scan_games
 
@@ -29,6 +30,9 @@ class PS2StudioApp:
         self.fullscreen_var = tk.BooleanVar(value=self.settings.fullscreen)
         self.recursive_var = tk.BooleanVar(value=self.settings.recursive)
         self.status_var = tk.StringVar(value="Listo")
+        self.cover_photo = None
+        self.details_title = tk.StringVar(value="Selecciona un juego")
+        self.details_text = tk.StringVar(value="No hay juego seleccionado.")
         self._auto_detect_pcsx2()
         self._configure_window()
         self._build_widgets()
@@ -36,16 +40,16 @@ class PS2StudioApp:
 
     def _configure_window(self) -> None:
         self.root.title("PS2 Studio — Biblioteca PS2")
-        self.root.geometry("980x650")
-        self.root.minsize(740, 480)
+        self.root.geometry("1170x700")
+        self.root.minsize(950, 560)
         style = ttk.Style(self.root)
         if "clam" in style.theme_names():
             style.theme_use("clam")
-        style.configure("Treeview", rowheight=31, font=("Segoe UI", 10))
+        style.configure("Treeview", rowheight=34, font=("Segoe UI", 10), background="#ffffff", fieldbackground="#ffffff", foreground="#193052")
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
-        style.configure("Title.TLabel", font=("Segoe UI", 21, "bold"))
+        style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"), foreground="#1c5aa6")
         style.configure("Sub.TLabel", font=("Segoe UI", 10))
-        style.configure("Play.TButton", padding=(18, 9))
+        style.configure("Play.TButton", padding=(18, 9), background="#1768c8", foreground="#ffffff")
 
     def _build_widgets(self) -> None:
         outer = ttk.Frame(self.root, padding=18)
@@ -81,8 +85,12 @@ class PS2StudioApp:
         ttk.Checkbutton(options, text="Subcarpetas", variable=self.recursive_var, command=self._change_recursive).pack(side="left", padx=(0, 9))
         ttk.Checkbutton(options, text="Solo favoritos", variable=self.favorites_only_var, command=self._render_games).pack(side="left")
 
-        panel = ttk.Frame(outer)
-        panel.pack(fill="both", expand=True)
+        horizontal = ttk.Panedwindow(outer, orient="horizontal")
+        horizontal.pack(fill="both", expand=True)
+        panel = ttk.Frame(horizontal)
+        horizontal.add(panel, weight=3)
+        details = ttk.Frame(horizontal, padding=(12, 4))
+        horizontal.add(details, weight=1)
         columns = ("favorite", "title", "format", "size", "folder")
         self.tree = ttk.Treeview(panel, columns=columns, show="headings", selectmode="browse")
         for key, caption in [("favorite", "★"), ("title", "Juego"), ("format", "Formato"), ("size", "Tamaño"), ("folder", "Carpeta")]:
@@ -98,6 +106,22 @@ class PS2StudioApp:
         scroll.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda _: self.play_selected())
         self.tree.bind("<Return>", lambda _: self.play_selected())
+        self.tree.bind("<<TreeviewSelect>>", lambda _: self._show_preview())
+
+        ttk.Label(details, text="CARÁTULA Y DETALLES", font=("Segoe UI", 11, "bold"), foreground="#1c5aa6").pack(anchor="w", pady=(0, 9))
+        self.cover_label = tk.Label(details, text="SIN CARÁTULA", bg="#172c4b", fg="#d9e9ff",
+                                    font=("Segoe UI", 11, "bold"), width=29, height=13)
+        self.cover_label.pack(fill="both", pady=(0, 10))
+        ttk.Label(details, textvariable=self.details_title, font=("Segoe UI", 13, "bold"),
+                  wraplength=235).pack(anchor="w")
+        ttk.Label(details, textvariable=self.details_text, wraplength=235,
+                  justify="left").pack(anchor="w", pady=(8, 12))
+        image_buttons = ttk.Frame(details)
+        image_buttons.pack(anchor="w")
+        ttk.Button(image_buttons, text="Elegir carátula", command=self.choose_cover).pack(side="left", padx=(0, 6))
+        ttk.Button(image_buttons, text="Quitar", command=self.remove_cover).pack(side="left")
+        ttk.Label(details, text="PNG o GIF local · Sin descargas de Internet",
+                  foreground="#586b89", wraplength=235).pack(anchor="w", pady=(12, 0))
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
@@ -179,6 +203,68 @@ class PS2StudioApp:
 
         ttk.Button(dialog, text="Quitar (no borra archivos)", command=confirm).pack(pady=20)
 
+    def _selected_game(self) -> Game | None:
+        selected = self.tree.selection()
+        return self.visible.get(selected[0]) if selected else None
+
+    def choose_cover(self) -> None:
+        game = self._selected_game()
+        if game is None:
+            messagebox.showinfo("Carátulas", "Selecciona un juego de la lista.")
+            return
+        path = filedialog.askopenfilename(
+            title="Seleccionar carátula local",
+            filetypes=[("Carátulas PNG/GIF", "*.png *.gif"), ("PNG", "*.png"), ("GIF", "*.gif")],
+        )
+        if not path:
+            return
+        try:
+            cover = validate_cover(path)
+            # Verify that Tk can decode this file before storing its path.
+            probe = tk.PhotoImage(file=str(cover))
+            del probe
+        except (CoverError, tk.TclError) as exc:
+            messagebox.showerror("Carátula no válida", str(exc))
+            return
+        self.settings.covers[favorite_key(game.path)] = str(cover)
+        self._save_options()
+        self._show_preview()
+
+    def remove_cover(self) -> None:
+        game = self._selected_game()
+        if game is None:
+            return
+        self.settings.covers.pop(favorite_key(game.path), None)
+        self._save_options()
+        self._show_preview()
+
+    def _show_preview(self) -> None:
+        game = self._selected_game()
+        self.cover_photo = None
+        if game is None:
+            self.details_title.set("Selecciona un juego")
+            self.details_text.set("Las carátulas se guardan como rutas locales.")
+            self.cover_label.configure(image="", text="SIN CARÁTULA", width=29, height=13)
+            return
+        self.details_title.set(game.title)
+        self.details_text.set(
+            f"Formato: {game.format}\nTamaño: {game.size_label}\nCarpeta: {game.path.parent}"
+        )
+        requested = self.settings.covers.get(favorite_key(game.path))
+        try:
+            cover = validate_cover(requested) if requested else suggested_cover(game.path)
+            if cover is not None:
+                photo = tk.PhotoImage(file=str(cover))
+                scale = max(1, (photo.width() + 239) // 240, (photo.height() + 279) // 280)
+                if scale > 1:
+                    photo = photo.subsample(scale, scale)
+                self.cover_photo = photo
+                self.cover_label.configure(image=photo, text="", width=240, height=280)
+                return
+        except (CoverError, tk.TclError, OSError):
+            pass
+        self.cover_label.configure(image="", text="SIN CARÁTULA", width=29, height=13)
+
     def toggle_favorite(self) -> None:
         selection = self.tree.selection()
         if not selection:
@@ -206,6 +292,8 @@ class PS2StudioApp:
             favorite_paths=self.favorite_paths,
             favorites_only=self.favorites_only_var.get(),
         )
+        previous = self._selected_game()
+        previous_path = previous.path if previous else None
         self.visible.clear()
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -214,7 +302,10 @@ class PS2StudioApp:
             self.visible[item_id] = game
             symbol = "★" if favorite_key(game.path) in self.favorite_paths else ""
             self.tree.insert("", "end", iid=item_id, values=(symbol, game.title, game.format, game.size_label, str(game.path.parent)))
+            if previous_path == game.path:
+                self.tree.selection_set(item_id)
         self.status_var.set(f"{len(filtered)} juegos visibles · {len(self.games)} encontrados · {len(self.favorite_paths)} favoritos")
+        self._show_preview()
 
     def play_selected(self) -> None:
         selection = self.tree.selection()
