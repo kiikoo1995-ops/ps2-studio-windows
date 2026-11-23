@@ -203,6 +203,68 @@ class PS2StudioApp:
 
         ttk.Button(dialog, text="Quitar (no borra archivos)", command=confirm).pack(pady=20)
 
+    def _selected_game(self) -> Game | None:
+        selected = self.tree.selection()
+        return self.visible.get(selected[0]) if selected else None
+
+    def choose_cover(self) -> None:
+        game = self._selected_game()
+        if game is None:
+            messagebox.showinfo("Carátulas", "Selecciona un juego de la lista.")
+            return
+        path = filedialog.askopenfilename(
+            title="Seleccionar carátula local",
+            filetypes=[("Carátulas PNG/GIF", "*.png *.gif"), ("PNG", "*.png"), ("GIF", "*.gif")],
+        )
+        if not path:
+            return
+        try:
+            cover = validate_cover(path)
+            # Verify that Tk can decode this file before storing its path.
+            probe = tk.PhotoImage(file=str(cover))
+            del probe
+        except (CoverError, tk.TclError) as exc:
+            messagebox.showerror("Carátula no válida", str(exc))
+            return
+        self.settings.covers[favorite_key(game.path)] = str(cover)
+        self._save_options()
+        self._show_preview()
+
+    def remove_cover(self) -> None:
+        game = self._selected_game()
+        if game is None:
+            return
+        self.settings.covers.pop(favorite_key(game.path), None)
+        self._save_options()
+        self._show_preview()
+
+    def _show_preview(self) -> None:
+        game = self._selected_game()
+        self.cover_photo = None
+        if game is None:
+            self.details_title.set("Selecciona un juego")
+            self.details_text.set("Las carátulas se guardan como rutas locales.")
+            self.cover_label.configure(image="", text="SIN CARÁTULA", width=29, height=13)
+            return
+        self.details_title.set(game.title)
+        self.details_text.set(
+            f"Formato: {game.format}\nTamaño: {game.size_label}\nCarpeta: {game.path.parent}"
+        )
+        requested = self.settings.covers.get(favorite_key(game.path))
+        try:
+            cover = validate_cover(requested) if requested else suggested_cover(game.path)
+            if cover is not None:
+                photo = tk.PhotoImage(file=str(cover))
+                scale = max(1, (photo.width() + 239) // 240, (photo.height() + 279) // 280)
+                if scale > 1:
+                    photo = photo.subsample(scale, scale)
+                self.cover_photo = photo
+                self.cover_label.configure(image=photo, text="", width=240, height=280)
+                return
+        except (CoverError, tk.TclError, OSError):
+            pass
+        self.cover_label.configure(image="", text="SIN CARÁTULA", width=29, height=13)
+
     def toggle_favorite(self) -> None:
         selection = self.tree.selection()
         if not selection:
