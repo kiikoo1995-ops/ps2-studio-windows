@@ -8,6 +8,7 @@ import webbrowser
 
 from .autodetect import find_pcsx2
 from .config import AppConfig, ConfigError, ConfigStore
+from .cover_art import CoverError, validate_cover, suggested_cover
 from .launcher import LaunchError, start_game
 from .library import Game, favorite_key, filter_games, scan_games
 
@@ -29,6 +30,9 @@ class PS2StudioApp:
         self.fullscreen_var = tk.BooleanVar(value=self.settings.fullscreen)
         self.recursive_var = tk.BooleanVar(value=self.settings.recursive)
         self.status_var = tk.StringVar(value="Listo")
+        self.cover_photo = None
+        self.details_title = tk.StringVar(value="Selecciona un juego")
+        self.details_text = tk.StringVar(value="No hay juego seleccionado.")
         self._auto_detect_pcsx2()
         self._configure_window()
         self._build_widgets()
@@ -36,16 +40,16 @@ class PS2StudioApp:
 
     def _configure_window(self) -> None:
         self.root.title("PS2 Studio — Biblioteca PS2")
-        self.root.geometry("980x650")
-        self.root.minsize(740, 480)
+        self.root.geometry("1170x700")
+        self.root.minsize(950, 560)
         style = ttk.Style(self.root)
         if "clam" in style.theme_names():
             style.theme_use("clam")
-        style.configure("Treeview", rowheight=31, font=("Segoe UI", 10))
+        style.configure("Treeview", rowheight=34, font=("Segoe UI", 10), background="#ffffff", fieldbackground="#ffffff", foreground="#193052")
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
-        style.configure("Title.TLabel", font=("Segoe UI", 21, "bold"))
+        style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"), foreground="#1c5aa6")
         style.configure("Sub.TLabel", font=("Segoe UI", 10))
-        style.configure("Play.TButton", padding=(18, 9))
+        style.configure("Play.TButton", padding=(18, 9), background="#1768c8", foreground="#ffffff")
 
     def _build_widgets(self) -> None:
         outer = ttk.Frame(self.root, padding=18)
@@ -81,8 +85,12 @@ class PS2StudioApp:
         ttk.Checkbutton(options, text="Subcarpetas", variable=self.recursive_var, command=self._change_recursive).pack(side="left", padx=(0, 9))
         ttk.Checkbutton(options, text="Solo favoritos", variable=self.favorites_only_var, command=self._render_games).pack(side="left")
 
-        panel = ttk.Frame(outer)
-        panel.pack(fill="both", expand=True)
+        horizontal = ttk.Panedwindow(outer, orient="horizontal")
+        horizontal.pack(fill="both", expand=True)
+        panel = ttk.Frame(horizontal)
+        horizontal.add(panel, weight=3)
+        details = ttk.Frame(horizontal, padding=(12, 4))
+        horizontal.add(details, weight=1)
         columns = ("favorite", "title", "format", "size", "folder")
         self.tree = ttk.Treeview(panel, columns=columns, show="headings", selectmode="browse")
         for key, caption in [("favorite", "★"), ("title", "Juego"), ("format", "Formato"), ("size", "Tamaño"), ("folder", "Carpeta")]:
@@ -98,6 +106,7 @@ class PS2StudioApp:
         scroll.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda _: self.play_selected())
         self.tree.bind("<Return>", lambda _: self.play_selected())
+        self.tree.bind("<<TreeviewSelect>>", lambda _: self._show_preview())
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
