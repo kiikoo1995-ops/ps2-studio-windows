@@ -292,6 +292,8 @@ class PS2StudioApp:
             favorite_paths=self.favorite_paths,
             favorites_only=self.favorites_only_var.get(),
         )
+        previous = self._selected_game()
+        previous_path = previous.path if previous else None
         self.visible.clear()
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -300,7 +302,10 @@ class PS2StudioApp:
             self.visible[item_id] = game
             symbol = "★" if favorite_key(game.path) in self.favorite_paths else ""
             self.tree.insert("", "end", iid=item_id, values=(symbol, game.title, game.format, game.size_label, str(game.path.parent)))
+            if previous_path == game.path:
+                self.tree.selection_set(item_id)
         self.status_var.set(f"{len(filtered)} juegos visibles · {len(self.games)} encontrados · {len(self.favorite_paths)} favoritos")
+        self._show_preview()
 
     def play_selected(self) -> None:
         selection = self.tree.selection()
