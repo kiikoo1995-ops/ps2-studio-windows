@@ -52,6 +52,17 @@ class ConfigTests(unittest.TestCase):
             store.save(cfg)
             self.assertEqual(store.load().favorites, cfg.favorites)
 
+    def test_local_covers_are_optional_and_persisted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = ConfigStore(Path(folder) / "config.json")
+            older = AppConfig.from_dict({"game_directories": ["D:/Juegos"]})
+            self.assertEqual(older.covers, {})
+            older.covers = {"D:/Juegos/game.iso": "D:/Caratulas/game.png"}
+            store.save(older)
+            self.assertEqual(store.load().covers, older.covers)
+            with self.assertRaises(ConfigError):
+                AppConfig.from_dict({"covers": {"game.iso": 42}})
+
     def test_duplicate_favorite_paths_removed(self):
         cfg = AppConfig.from_dict({"favorites": ["a.iso", "a.iso", "b.chd"]})
         self.assertEqual(cfg.favorites, ["a.iso", "b.chd"])
