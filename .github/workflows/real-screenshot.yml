@@ -19,7 +19,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y python3-tk python3-pil xvfb
       - name: Render and capture running Tkinter app
-        run: xvfb-run -a /usr/bin/python3 tools/capture_app_demo.py
+        run: PYTHONPATH=. xvfb-run -a /usr/bin/python3 tools/capture_app_demo.py
       - name: Publish screenshot as workflow artifact
         uses: actions/upload-artifact@v4
         with:
