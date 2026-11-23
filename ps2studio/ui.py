@@ -108,6 +108,21 @@ class PS2StudioApp:
         self.tree.bind("<Return>", lambda _: self.play_selected())
         self.tree.bind("<<TreeviewSelect>>", lambda _: self._show_preview())
 
+        ttk.Label(details, text="CARÁTULA Y DETALLES", font=("Segoe UI", 11, "bold"), foreground="#1c5aa6").pack(anchor="w", pady=(0, 9))
+        self.cover_label = tk.Label(details, text="SIN CARÁTULA", bg="#172c4b", fg="#d9e9ff",
+                                    font=("Segoe UI", 11, "bold"), width=29, height=13)
+        self.cover_label.pack(fill="both", pady=(0, 10))
+        ttk.Label(details, textvariable=self.details_title, font=("Segoe UI", 13, "bold"),
+                  wraplength=235).pack(anchor="w")
+        ttk.Label(details, textvariable=self.details_text, wraplength=235,
+                  justify="left").pack(anchor="w", pady=(8, 12))
+        image_buttons = ttk.Frame(details)
+        image_buttons.pack(anchor="w")
+        ttk.Button(image_buttons, text="Elegir carátula", command=self.choose_cover).pack(side="left", padx=(0, 6))
+        ttk.Button(image_buttons, text="Quitar", command=self.remove_cover).pack(side="left")
+        ttk.Label(details, text="PNG o GIF local · Sin descargas de Internet",
+                  foreground="#586b89", wraplength=235).pack(anchor="w", pady=(12, 0))
+
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
         ttk.Label(footer, textvariable=self.status_var).pack(side="left")
