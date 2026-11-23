@@ -6,9 +6,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
 
+from .autodetect import find_pcsx2
 from .config import AppConfig, ConfigError, ConfigStore
 from .launcher import LaunchError, start_game
-from .library import Game, filter_games, scan_games
+from .library import Game, favorite_key, filter_games, scan_games
 
 
 class PS2StudioApp:
@@ -23,9 +24,12 @@ class PS2StudioApp:
         self.games: list[Game] = []
         self.visible: dict[str, Game] = {}
         self.search_var = tk.StringVar()
+        self.favorite_paths = set(self.settings.favorites)
+        self.favorites_only_var = tk.BooleanVar(value=False)
         self.fullscreen_var = tk.BooleanVar(value=self.settings.fullscreen)
         self.recursive_var = tk.BooleanVar(value=self.settings.recursive)
         self.status_var = tk.StringVar(value="Listo")
+        self._auto_detect_pcsx2()
         self._configure_window()
         self._build_widgets()
         self.refresh_games()
@@ -56,7 +60,8 @@ class PS2StudioApp:
         ttk.Button(toolbar, text="Seleccionar PCSX2", command=self.choose_emulator).pack(side="left", padx=(0, 6))
         ttk.Button(toolbar, text="Añadir carpeta", command=self.add_folder).pack(side="left", padx=(0, 6))
         ttk.Button(toolbar, text="Quitar carpeta", command=self.remove_folder).pack(side="left", padx=(0, 6))
-        ttk.Button(toolbar, text="Actualizar", command=self.refresh_games).pack(side="left")
+        ttk.Button(toolbar, text="Actualizar", command=self.refresh_games).pack(side="left", padx=(0, 6))
+        ttk.Button(toolbar, text="★ Favorito", command=self.toggle_favorite).pack(side="left")
 
         paths_frame = ttk.Frame(outer)
         paths_frame.pack(fill="x", pady=(0, 8))
@@ -73,14 +78,16 @@ class PS2StudioApp:
         search.pack(side="left", fill="x", expand=True, padx=(8, 14))
         self.search_var.trace_add("write", lambda *_: self._render_games())
         ttk.Checkbutton(options, text="Pantalla completa", variable=self.fullscreen_var, command=self._save_options).pack(side="left", padx=(0, 9))
-        ttk.Checkbutton(options, text="Subcarpetas", variable=self.recursive_var, command=self._change_recursive).pack(side="left")
+        ttk.Checkbutton(options, text="Subcarpetas", variable=self.recursive_var, command=self._change_recursive).pack(side="left", padx=(0, 9))
+        ttk.Checkbutton(options, text="Solo favoritos", variable=self.favorites_only_var, command=self._render_games).pack(side="left")
 
         panel = ttk.Frame(outer)
         panel.pack(fill="both", expand=True)
-        columns = ("title", "format", "size", "folder")
+        columns = ("favorite", "title", "format", "size", "folder")
         self.tree = ttk.Treeview(panel, columns=columns, show="headings", selectmode="browse")
-        for key, caption in [("title", "Juego"), ("format", "Formato"), ("size", "Tamaño"), ("folder", "Carpeta")]:
+        for key, caption in [("favorite", "★"), ("title", "Juego"), ("format", "Formato"), ("size", "Tamaño"), ("folder", "Carpeta")]:
             self.tree.heading(key, text=caption)
+        self.tree.column("favorite", width=42, minwidth=36, stretch=False, anchor="center")
         self.tree.column("title", width=310, minwidth=180, stretch=True)
         self.tree.column("format", width=90, minwidth=70, stretch=False)
         self.tree.column("size", width=100, minwidth=80, stretch=False)
@@ -98,7 +105,21 @@ class PS2StudioApp:
         ttk.Button(footer, text="Web oficial PCSX2", command=lambda: webbrowser.open("https://pcsx2.net/downloads/")).pack(side="right", padx=(8, 0))
         ttk.Button(footer, text="Iniciar juego", style="Play.TButton", command=self.play_selected).pack(side="right")
 
+    def _auto_detect_pcsx2(self) -> None:
+        current = self.settings.pcsx2_path
+        if current and Path(current).is_file() and Path(current).name.lower() in {"pcsx2-qt.exe", "pcsx2.exe"}:
+            return
+        detected = find_pcsx2()
+        if detected:
+            self.settings.pcsx2_path = detected
+            try:
+                self.store.save(self.settings)
+            except ConfigError as exc:
+                messagebox.showwarning("Detección de PCSX2", f"Se detectó PCSX2 pero no se pudieron guardar los ajustes: {exc}")
+            self.status_var.set("PCSX2 detectado automáticamente")
+
     def _refresh_path_labels(self) -> None:
+        # The best-effort detector runs only at startup; manual selection remains possible.
         self.exe_label.configure(text=f"Emulador: {self.settings.pcsx2_path or '(sin configurar)'}")
         self.paths_label.configure(text="Juegos: " + (" | ".join(self.settings.game_directories) or "(añade una carpeta)") )
 
@@ -158,20 +179,42 @@ class PS2StudioApp:
 
         ttk.Button(dialog, text="Quitar (no borra archivos)", command=confirm).pack(pady=20)
 
+    def toggle_favorite(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("Favoritos", "Selecciona un juego de la lista.")
+            return
+        game = self.visible.get(selection[0])
+        if game is None:
+            return
+        key = favorite_key(game.path)
+        if key in self.favorite_paths:
+            self.favorite_paths.remove(key)
+        else:
+            self.favorite_paths.add(key)
+        self.settings.favorites = sorted(self.favorite_paths)
+        self._save_options()
+        self._render_games()
+
     def refresh_games(self) -> None:
         self.games = scan_games(self.settings.game_directories, recursive=self.recursive_var.get())
         self._render_games()
 
     def _render_games(self) -> None:
-        filtered = filter_games(self.games, self.search_var.get())
+        filtered = filter_games(
+            self.games, self.search_var.get(),
+            favorite_paths=self.favorite_paths,
+            favorites_only=self.favorites_only_var.get(),
+        )
         self.visible.clear()
         for item in self.tree.get_children():
             self.tree.delete(item)
         for index, game in enumerate(filtered):
             item_id = str(index)
             self.visible[item_id] = game
-            self.tree.insert("", "end", iid=item_id, values=(game.title, game.format, game.size_label, str(game.path.parent)))
-        self.status_var.set(f"{len(filtered)} juegos visibles · {len(self.games)} encontrados")
+            symbol = "★" if favorite_key(game.path) in self.favorite_paths else ""
+            self.tree.insert("", "end", iid=item_id, values=(symbol, game.title, game.format, game.size_label, str(game.path.parent)))
+        self.status_var.set(f"{len(filtered)} juegos visibles · {len(self.games)} encontrados · {len(self.favorite_paths)} favoritos")
 
     def play_selected(self) -> None:
         selection = self.tree.selection()

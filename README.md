@@ -1,4 +1,4 @@
-# PS2 Studio · Versión inicial 0.1.0
+# PS2 Studio · Versión preliminar 0.2.0
 
 **PS2 Studio** es una aplicación independiente para Windows que organiza una
 biblioteca de juegos PS2 y los ejecuta mediante una instalación separada de
@@ -7,12 +7,14 @@ de PCSX2**: lo controla mediante su interfaz de línea de comandos oficial.
 
 ## Funciones de esta versión
 
-- Biblioteca con búsqueda por nombre y columnas de formato, tamaño y carpeta.
+- Biblioteca con búsqueda por nombre, favoritos y filtro «Solo favoritos».
+- Detección local opcional de PCSX2 en PATH o carpetas de instalación habituales; selección manual disponible.
+- Columnas de formato, tamaño y carpeta; los favoritos se guardan entre sesiones.
 - Búsqueda de imágenes de disco en carpetas y subcarpetas configurables.
 - Formatos: `.iso`, `.chd`, `.cso`, `.zso`, `.bin`, `.cue`, `.mdf`, `.gz`.
 - Evita duplicar una pareja habitual `.cue`/`.bin` con el mismo nombre base.
 - Ejecuta PCSX2 con `-batch [-fullscreen] -- <imagen_de_disco>`.
-- Guarda ajustes localmente en `%APPDATA%\PS2Studio\settings.json`.
+- Guarda ajustes y favoritos localmente en `%APPDATA%\PS2Studio\settings.json`.
 - Sin cuentas, telemetría, descargas de BIOS ni servicios de pago.
 
 ## Ejecutar el código en Windows
@@ -20,9 +22,10 @@ de PCSX2**: lo controla mediante su interfaz de línea de comandos oficial.
 1. Instala [Python 3.11 o posterior](https://www.python.org/downloads/windows/) con tkinter.
 2. Descarga o clona el repositorio y abre una terminal en la carpeta raíz.
 3. Ejecuta `python app.py`.
-4. Pulsa **Seleccionar PCSX2** y elige el archivo `pcsx2-qt.exe` del emulador.
+4. Si no se detecta automáticamente, pulsa **Seleccionar PCSX2** y elige `pcsx2-qt.exe`.
 5. Pulsa **Añadir carpeta** y selecciona una carpeta con tus copias legítimas de juegos.
-6. Haz doble clic en un juego o pulsa **Iniciar juego**.
+6. Selecciona un juego y pulsa **★ Favorito** para guardarlo, o activa **Solo favoritos** para filtrarlo.
+7. Haz doble clic en un juego o pulsa **Iniciar juego**.
 
 PCSX2 no está incluido. Instálalo desde https://pcsx2.net/downloads/ y completa
 su configuración inicial, incluida una BIOS extraída de tu propia PS2.
@@ -33,6 +36,8 @@ Al subir este código a un repositorio de GitHub, el flujo
 `.github/workflows/windows.yml` ejecuta las pruebas en Windows y, si se superan,
 crea un ejecutable mediante PyInstaller. El archivo `PS2Studio.exe` aparecerá
 como artefacto **PS2Studio-Windows** en la ejecución de GitHub Actions.
+
+**Verificación de descarga:** la publicación preliminar también incluye `PS2Studio-Windows.zip.sha256`. Compara la suma mediante PowerShell: `Get-FileHash .\PS2Studio-Windows.zip -Algorithm SHA256`. Al publicar una versión nueva cambia la suma; utiliza siempre la del ZIP que acabas de descargar.
 
 **Descarga disponible:** [versión preliminar de Windows](https://github.com/kiikoo1995-ops/ps2-studio-windows/releases/tag/preview) generada por GitHub Actions. Es un lanzador, no una copia de PCSX2.
 
@@ -73,9 +78,9 @@ PS2Studio/
 
 ## Evolución prevista
 
-- **v0.2:** favoritos, historial y carátulas locales opcionales.
-- **v0.3:** navegación con mando y perfiles gráficos.
-- **v1.0:** distribución firmada y pruebas de integración con PCSX2 real.
+- **v0.2:** favoritos persistentes y detección local de PCSX2 incluidos; pendientes historial y carátulas locales.
+- **v0.3:** navegación con mando y perfiles gráficos (propuesta, no disponible).
+- **v1.0:** distribución firmada y pruebas de integración con PCSX2 real (pendiente).
 
 ## Licencias
 

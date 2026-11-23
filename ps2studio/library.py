@@ -64,6 +64,20 @@ def scan_games(directories: list[str], *, recursive: bool = True) -> list[Game]:
     return sorted(found, key=lambda game: (game.title.casefold(), str(game.path).casefold()))
 
 
-def filter_games(games: list[Game], query: str) -> list[Game]:
+def filter_games(
+    games: list[Game], query: str, *,
+    favorite_paths: set[str] | None = None,
+    favorites_only: bool = False,
+) -> list[Game]:
+    """Filter by title and optionally by paths saved as favorites."""
     q = query.casefold().strip()
-    return [game for game in games if q in game.title.casefold()] if q else list(games)
+    selected = [game for game in games if q in game.title.casefold()] if q else list(games)
+    if favorites_only:
+        keys = favorite_paths or set()
+        selected = [game for game in selected if favorite_key(game.path) in keys]
+    return selected
+
+
+def favorite_key(path: str | Path) -> str:
+    """Stable local identity for a file across overlapping scan roots."""
+    return os.path.normcase(str(Path(path).expanduser().resolve()))

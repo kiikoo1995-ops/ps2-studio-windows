@@ -27,12 +27,20 @@ jobs:
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: Compress-Archive -Path dist/PS2Studio.exe -DestinationPath dist/PS2Studio-Windows.zip -Force
+      - name: Generate ZIP SHA256 checksum
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path dist/PS2Studio-Windows.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  PS2Studio-Windows.zip" | Set-Content -Path dist/PS2Studio-Windows.zip.sha256 -Encoding ascii
       - name: Upload ZIP artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: PS2Studio-Windows
-          path: dist/PS2Studio-Windows.zip
+          path: |
+            dist/PS2Studio-Windows.zip
+            dist/PS2Studio-Windows.zip.sha256
           if-no-files-found: error
       - name: Publish or replace preview release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -43,7 +51,7 @@ jobs:
           $repo = $env:GITHUB_REPOSITORY
           gh release view preview --repo $repo *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload preview dist/PS2Studio-Windows.zip --clobber --repo $repo
+            gh release upload preview dist/PS2Studio-Windows.zip dist/PS2Studio-Windows.zip.sha256 --clobber --repo $repo
           } else {
-            gh release create preview dist/PS2Studio-Windows.zip --target $env:GITHUB_SHA --title 'PS2 Studio - Preview' --notes 'Versión preliminar de Windows. Requiere instalar PCSX2 por separado; no incluye BIOS ni juegos.' --prerelease --latest=false --repo $repo
+            gh release create preview dist/PS2Studio-Windows.zip dist/PS2Studio-Windows.zip.sha256 --target $env:GITHUB_SHA --title 'PS2 Studio - Preview' --notes 'Versión preliminar de Windows. Requiere instalar PCSX2 por separado; no incluye BIOS ni juegos.' --prerelease --latest=false --repo $repo
           }

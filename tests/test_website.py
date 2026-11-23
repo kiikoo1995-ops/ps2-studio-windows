@@ -75,6 +75,8 @@ class WebsiteTests(unittest.TestCase):
     def test_download_and_legal_text(self):
         download = (ROOT/"descargar/index.html").read_text(encoding="utf8")
         self.assertIn("/releases/download/preview/PS2Studio-Windows.zip", download)
+        self.assertIn("PS2Studio-Windows.zip.sha256", download)
+        self.assertIn("Solo favoritos", (ROOT / "guias/uso/index.html").read_text(encoding="utf8"))
         self.assertIn("preliminar", download.lower())
         self.assertIn("consentimiento", (ROOT/"legal/privacidad/index.html").read_text(encoding="utf8"))
         self.assertTrue((ROOT/"_headers").exists())
