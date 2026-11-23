@@ -46,6 +46,16 @@ como artefacto **PS2Studio-Windows** en la ejecución de GitHub Actions.
 
 **Web pública gratuita:** https://ps2-studio-windows.kiikoo1995.workers.dev/ · [Manual de PS2 Studio](https://ps2-studio-windows.kiikoo1995.workers.dev/guias/uso/).
 
+## Captura auténtica de la interfaz
+
+La imagen [site/assets/app-real-demo.png](site/assets/app-real-demo.png) se genera
+al ejecutar **PS2 Studio real** con `tkinter` en una pantalla virtual Linux/Xvfb,
+utilizando el script [tools/capture_app_demo.py](tools/capture_app_demo.py).
+Los archivos de juegos y las carátulas utilizados son ejemplos ficticios creados
+para la demostración. **No es una imagen de IA ni una prueba de funcionamiento
+con juegos comerciales o PCSX2 en Windows.** La compilación del EXE se comprueba
+por separado con GitHub Actions.
+
 ## Pruebas locales
 
 Desde la carpeta raíz:
