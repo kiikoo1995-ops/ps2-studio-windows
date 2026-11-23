@@ -24,6 +24,7 @@ class AppConfig:
     game_directories: list[str] = field(default_factory=list)
     fullscreen: bool = False
     recursive: bool = True
+    favorites: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: object) -> "AppConfig":
@@ -33,14 +34,18 @@ class AppConfig:
         dirs = data.get("game_directories", [])
         fullscreen = data.get("fullscreen", False)
         recursive = data.get("recursive", True)
+        favorites = data.get("favorites", [])
         if not isinstance(exe, str):
             raise ConfigError("pcsx2_path debe ser texto.")
         if not isinstance(dirs, list) or any(not isinstance(d, str) for d in dirs):
             raise ConfigError("game_directories debe ser una lista de rutas.")
+        if not isinstance(favorites, list) or any(not isinstance(value, str) or not value for value in favorites):
+            raise ConfigError("favorites debe ser una lista de rutas no vacías.")
         if not isinstance(fullscreen, bool) or not isinstance(recursive, bool):
             raise ConfigError("fullscreen y recursive deben ser booleanos.")
         return cls(pcsx2_path=exe, game_directories=list(dict.fromkeys(dirs)),
-                   fullscreen=fullscreen, recursive=recursive)
+                   fullscreen=fullscreen, recursive=recursive,
+                   favorites=list(dict.fromkeys(favorites)))
 
 
 class ConfigStore:

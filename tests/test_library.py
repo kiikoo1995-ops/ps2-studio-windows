@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ps2studio.library import filter_games, scan_games
+from ps2studio.library import favorite_key, filter_games, scan_games
 
 
 class LibraryTests(unittest.TestCase):
@@ -48,3 +48,15 @@ class LibraryTests(unittest.TestCase):
 
     def test_nonexistent_directory(self):
         self.assertEqual(scan_games(["/this/is/an/unlikely/missing/folder"]), [])
+
+    def test_favorites_filter_is_independent_of_search(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "A.iso").write_bytes(b"x")
+            (root / "B.chd").write_bytes(b"x")
+            games = scan_games([folder])
+            saved = {favorite_key(root / "B.chd")}
+            self.assertEqual([g.title for g in filter_games(games, "", favorite_paths=saved, favorites_only=True)], ["B"])
+            self.assertEqual(filter_games(games, "A", favorite_paths=saved, favorites_only=True), [])
+            self.assertEqual(len(filter_games(games, "A", favorite_paths=saved)), 1)
+            self.assertEqual(filter_games(games, "", favorites_only=True), [])

@@ -14,6 +14,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.game_directories, [])
             self.assertFalse(config.fullscreen)
             self.assertTrue(config.recursive)
+            self.assertEqual(config.favorites, [])
 
     def test_roundtrip_unicode_spaces(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -31,7 +32,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(path.read_text(), "{broken")
 
     def test_invalid_types_rejected(self):
-        for payload in ({"game_directories": "not a list"}, {"fullscreen": 1}, []):
+        for payload in ({"game_directories": "not a list"}, {"fullscreen": 1}, {"favorites": "game.iso"}, {"favorites": [""]}, []):
             with self.subTest(payload=payload):
                 with self.assertRaises(ConfigError):
                     AppConfig.from_dict(payload)
@@ -39,3 +40,18 @@ class ConfigTests(unittest.TestCase):
     def test_duplicate_directories_removed(self):
         cfg = AppConfig.from_dict({"game_directories": ["a", "a", "b"]})
         self.assertEqual(cfg.game_directories, ["a", "b"])
+
+    def test_favorites_roundtrip_and_old_config(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = ConfigStore(Path(folder) / "settings.json")
+            older = {"pcsx2_path": "", "game_directories": ["D:/PS2"], "fullscreen": False, "recursive": True}
+            store.path.write_text(json.dumps(older), encoding="utf-8")
+            cfg = store.load()
+            self.assertEqual(cfg.favorites, [])
+            cfg.favorites = ["D:/PS2/Juego.iso", "D:/PS2/Otro.chd"]
+            store.save(cfg)
+            self.assertEqual(store.load().favorites, cfg.favorites)
+
+    def test_duplicate_favorite_paths_removed(self):
+        cfg = AppConfig.from_dict({"favorites": ["a.iso", "a.iso", "b.chd"]})
+        self.assertEqual(cfg.favorites, ["a.iso", "b.chd"])
