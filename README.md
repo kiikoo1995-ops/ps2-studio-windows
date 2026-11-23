@@ -1,4 +1,4 @@
-# PS2 Studio · Versión preliminar 0.2.0
+# PS2 Studio · Versión preliminar 0.3.0
 
 **PS2 Studio** es una aplicación independiente para Windows que organiza una
 biblioteca de juegos PS2 y los ejecuta mediante una instalación separada de
@@ -8,6 +8,9 @@ de PCSX2**: lo controla mediante su interfaz de línea de comandos oficial.
 ## Funciones de esta versión
 
 - Biblioteca con búsqueda por nombre, favoritos y filtro «Solo favoritos».
+- Vista lateral con carátulas PNG/GIF locales elegidas por el usuario y datos del archivo.
+- Detección de carátula con el mismo nombre base que la imagen de disco, si está en esa carpeta.
+- Sin descarga automática de portadas, API externas ni juegos incluidos.
 - Detección local opcional de PCSX2 en PATH o carpetas de instalación habituales; selección manual disponible.
 - Columnas de formato, tamaño y carpeta; los favoritos se guardan entre sesiones.
 - Búsqueda de imágenes de disco en carpetas y subcarpetas configurables.
@@ -79,7 +82,7 @@ PS2Studio/
 ## Evolución prevista
 
 - **v0.2:** favoritos persistentes y detección local de PCSX2 incluidos; pendientes historial y carátulas locales.
-- **v0.3:** navegación con mando y perfiles gráficos (propuesta, no disponible).
+- **v0.3:** panel de carátulas locales y detalles incluido; navegación con mando y perfiles gráficos todavía pendientes.
 - **v1.0:** distribución firmada y pruebas de integración con PCSX2 real (pendiente).
 
 ## Licencias
