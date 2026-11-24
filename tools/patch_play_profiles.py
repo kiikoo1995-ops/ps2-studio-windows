@@ -35,3 +35,28 @@ hook = r'''
     }
 '''
 source.write_text(text.replace(anchor, anchor + hook), encoding="utf-8")
+
+# Instrument only the CI homebrew boot: confirm the pinned Play! core really
+# loads and resumes a guest ELF, rather than merely opening an idle Qt window.
+mainwindow = Path(sys.argv[1]) / "Source/ui_qt/mainwindow.cpp"
+window_text = mainwindow.read_text(encoding="utf-8")
+boot_anchor = "void MainWindow::BootElf(fs::path filePath)\\n{\\n\\tm_virtualMachine->Pause();\\n\\tm_virtualMachine->Reset();\\n\\tm_virtualMachine->m_ee->m_os->BootFromFile(filePath);\\n#ifndef DEBUGGER_INCLUDED\\n\\tm_virtualMachine->Resume();\\n#endif\\n"
+if window_text.count(boot_anchor) != 1:
+    raise SystemExit("Unexpected upstream ELF boot anchor")
+boot_report = r'''
+    // Only active if a CI runner explicitly supplies a local marker path.
+    auto studioBootReportPath = qgetenv("PS2STUDIO_CI_ELF_MARKER");
+    if(!studioBootReportPath.isEmpty())
+    {
+        QFile studioBootReport(QString::fromLocal8Bit(studioBootReportPath));
+        if(studioBootReport.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        {
+            studioBootReport.write("BOOT_ELF_LOADED_AND_VM_RESUMED\\n");
+            studioBootReport.flush();
+        }
+    }
+'''
+window_text = window_text.replace(boot_anchor, boot_anchor + boot_report)
+window_text = window_text.replace("#include <QFileDialog>", "#include <QFile>\\n#include <QFileDialog>", 1)
+mainwindow.write_text(window_text, encoding="utf-8")
+

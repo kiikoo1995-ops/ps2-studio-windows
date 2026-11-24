@@ -136,6 +136,8 @@ jobs:
           if (!(Test-Path (Join-Path (Split-Path $exe) 'opengl32.dll'))) {
             throw 'Verified Mesa is required for hosted Windows smoke test'
           }
+          $marker = Join-Path (Resolve-Path homebrew-test).Path 'elf-boot-confirmed.txt'
+          $env:PS2STUDIO_CI_ELF_MARKER = $marker
           $proc = $null
           try {
             $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -ArgumentList @('--elf', $elf) -PassThru
@@ -145,12 +147,44 @@ jobs:
             if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) {
               throw 'Homebrew boot process window absent or unresponsive'
             }
+            if (!(Test-Path $marker)) { throw 'ELF was not loaded by Play core (no boot confirmation)' }
+            $message = (Get-Content $marker -Raw).Trim()
+            if ($message -ne 'BOOT_ELF_LOADED_AND_VM_RESUMED') {
+              throw "Unexpected Play core boot marker: $message"
+            }
             $cpuMs = [math]::Round($proc.TotalProcessorTime.TotalMilliseconds)
-            Write-Host "HOMEBREW_ELF_PROCESS_PASS: MIT homebrew launched with --elf; responsive process; CPU_ms=$cpuMs"
-            Write-Host 'LIMITATION: No rendered frame contents, controller input, actual FPS or game compatibility verified.'
+            Write-Host "HOMEBREW_ELF_BOOT_PASS: MIT ELF passed through actual Play BootElf and VM resumed; CPU_ms=$cpuMs"
+            # Best-effort diagnostic only: hosted Windows runners may not provide
+            # a real display framebuffer even though a Qt main window exists.
+            try {
+              Add-Type -AssemblyName System.Drawing
+              $image = New-Object System.Drawing.Bitmap(1280, 720)
+              $graphics = [System.Drawing.Graphics]::FromImage($image)
+              try {
+                $graphics.CopyFromScreen(0, 0, 0, 0, $image.Size)
+                $image.Save((Join-Path (Resolve-Path homebrew-test).Path 'display-diagnostic.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+                Write-Host 'DISPLAY_DIAGNOSTIC_CAPTURED (not proof of guest frames)'
+              } finally {
+                $graphics.Dispose()
+                $image.Dispose()
+              }
+            } catch {
+              Write-Warning "Display capture unsupported by hosted runner: $_"
+            }
+            Write-Host 'LIMITATION: Guest frame content, input controls, GPU performance and commercial-game FPS still unverified.'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
           }
+      - name: Upload homebrew diagnostics (no game or ELF included)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Play-homebrew-smoke-diagnostics
+          path: |
+            homebrew-test/elf-boot-confirmed.txt
+            homebrew-test/display-diagnostic.png
+          if-no-files-found: warn
+          retention-days: 3
       - name: Remove native symbols from staged distribution
         shell: pwsh
         run: Get-ChildItem engine/play -Recurse -File -Filter '*.pdb' | Remove-Item -Force
