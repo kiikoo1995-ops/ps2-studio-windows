@@ -35,7 +35,10 @@ jobs:
           if (!(Test-Path engine/play/Play.exe)) { throw 'Engine missing' }
           if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt platform plugin missing' }
           if (!(Test-Path engine/play/Play-LICENSE.txt)) { throw 'Engine license missing' }
+          $env:QT_OPENGL = 'software'
           $env:QT_DEBUG_PLUGINS = '1'
+          Write-Host 'Testing Qt software OpenGL on CI only'
+          Get-ChildItem engine/play -Filter '*opengl*' | Select-Object Name,Length | Format-Table | Out-String | Write-Host
           $env:QT_LOGGING_RULES = 'qt.qpa.*=true'
           $started = Get-Date
           $stdout = Join-Path $env:RUNNER_TEMP 'play-stdout.txt'
