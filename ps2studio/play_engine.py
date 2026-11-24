@@ -1,6 +1,7 @@
 """Experimental Play! process adapter; not yet wired into the UI."""
 from pathlib import Path
 import subprocess
+import sys
 
 from .launcher import LaunchError
 
@@ -24,3 +25,12 @@ def start_play(executable: str | Path, game: str | Path, *, fullscreen: bool = F
         return subprocess.Popen(command, cwd=str(Path(command[0]).parent), shell=False)
     except OSError as exc:
         raise LaunchError(f"No se pudo iniciar Play!: {exc}") from exc
+
+
+def find_bundled_play(root: Path | None = None) -> Path | None:
+    """Locate only the engine shipped alongside PS2 Studio, not PATH installs."""
+    if root is None:
+        root = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+                else Path(__file__).resolve().parent.parent)
+    candidate = root / "engine" / "play" / "Play.exe"
+    return candidate if candidate.is_file() else None
