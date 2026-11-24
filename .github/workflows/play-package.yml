@@ -29,71 +29,7 @@ jobs:
           run-id: '45296267226'
           github-token: ${{ github.token }}
           path: engine/play
-      - name: Verify and smoke-test motor
-        shell: pwsh
-        run: |
-          if (!(Test-Path engine/play/Play.exe)) { throw 'Engine missing' }
-          if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt platform plugin missing' }
-          if (!(Test-Path engine/play/Play-LICENSE.txt)) { throw 'Engine license missing' }
-          $env:QT_DEBUG_PLUGINS = '1'
-          Get-ChildItem engine/play -Filter '*opengl*' | Select-Object Name,Length | Format-Table | Out-String | Write-Host
-          $env:QT_LOGGING_RULES = 'qt.qpa.*=true'
-          $dumpDir = Join-Path $env:RUNNER_TEMP 'play-crash'
-          New-Item -ItemType Directory -Force $dumpDir | Out-Null
-          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\Play.exe'
-          New-Item -Path $wer -Force | Out-Null
-          New-ItemProperty -Path $wer -Name DumpFolder -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
-          New-ItemProperty -Path $wer -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
-          $started = Get-Date
-          $stdout = Join-Path $env:RUNNER_TEMP 'play-stdout.txt'
-          $stderr = Join-Path $env:RUNNER_TEMP 'play-stderr.txt'
-          $process = Start-Process -FilePath (Resolve-Path engine/play/Play.exe).Path -WorkingDirectory (Resolve-Path engine/play).Path -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-          try {
-            Start-Sleep -Seconds 8
-            $process.Refresh()
-            if ($process.HasExited) {
-              Write-Host "Exit code: $($process.ExitCode)"
-              Get-Content $stdout,$stderr -ErrorAction SilentlyContinue
-              Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started; Id=1000,1001,1002} -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'Play\.exe' } | Format-List TimeCreated,Id,Message | Out-String | Write-Host
-              for ($i = 0; $i -lt 10; $i++) {
-                if (Get-ChildItem $dumpDir -Filter '*.dmp' -ErrorAction SilentlyContinue) { break }
-                Start-Sleep -Seconds 2
-              }
-              $debugger = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue
-              $dump = Get-ChildItem $dumpDir -Filter '*.dmp' | Select-Object -First 1
-              if ($dump -and $debugger) {
-                & $debugger.FullName -z $dump.FullName -c '.symfix; .reload; !analyze -v; .ecxr; k; q' 2>&1 | Out-String | Write-Host
-              } else { Write-Host "Crash dump or debugger unavailable" }
-              throw "Engine exited prematurely: $($process.ExitCode)"
-            }
-          } finally {
-            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
-          }
-      - name: Remove temporary crash settings and dumps
-        if: always()
-        shell: pwsh
-        run: |
-          Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\Play.exe' -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item (Join-Path $env:RUNNER_TEMP 'play-crash') -Recurse -Force -ErrorAction SilentlyContinue
-      - name: Direct debugger on startup failure
-        if: failure()
-        timeout-minutes: 4
-        shell: pwsh
-        run: |
-          $exe = (Resolve-Path engine/play/Play.exe).Path
-          $cdb = Get-Command cdb.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
-          if (!$cdb) {
-            $candidate = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Debuggers\x64\cdb.exe'
-            if (Test-Path $candidate) { $cdb = $candidate }
-          }
-          if (!$cdb) { throw 'Windows x64 debugger CDB unavailable on runner' }
-          Push-Location (Split-Path $exe)
-          try {
-            $env:_NT_SYMBOL_PATH = 'srv*https://msdl.microsoft.com/download/symbols'
-            & $cdb -hd -c 'sxe -c ".exr -1; .ecxr; r; kP; lm; !analyze -v; q" av; g; q' $exe 2>&1 | ForEach-Object { Write-Host $_ }
-          } finally { Pop-Location }
-      - name: Test unified app-local Mesa desktop OpenGL after startup failure
-        if: failure()
+      - name: Stage and verify unified app-local Mesa desktop OpenGL
         timeout-minutes: 3
         shell: pwsh
         run: |
@@ -104,6 +40,8 @@ jobs:
           if (!(Test-Path $mesa) -or (Test-Path $local)) { throw 'Unexpected Mesa library layout' }
           Copy-Item $mesa $local
           $env:QT_OPENGL = 'desktop'
+          Get-FileHash $local -Algorithm SHA256
+          'QT_OPENGL=desktop' | Out-File -FilePath $env:GITHUB_ENV -Append
           $proc = $null
           try {
             $proc = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru
@@ -117,7 +55,6 @@ jobs:
             Write-Host 'APP_LOCAL_MESA_STARTUP_PASS: responsive Play window and local OpenGL implementation verified'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
-            Remove-Item $local -Force -ErrorAction SilentlyContinue
           }
       - name: Build PS2 Studio
         run: |
