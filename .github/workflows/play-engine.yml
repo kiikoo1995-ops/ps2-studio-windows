@@ -1,0 +1,56 @@
+name: Experimental Play! engine build
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/play-engine.yml'
+      - 'tools/play-engine.lock.json'
+permissions:
+  contents: read
+jobs:
+  build-play:
+    if: github.repository == 'kiikoo1995-ops/ps2-studio-windows'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned source and fetch submodules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lock = Get-Content tools/play-engine.lock.json -Raw | ConvertFrom-Json
+          if ($lock.repository -ne 'https://github.com/jpd002/Play-' -or $lock.commit -notmatch '^[a-f0-9]{40}$') { throw 'Invalid source lock' }
+          git clone --no-checkout $lock.repository upstream-play
+          if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+          git -C upstream-play checkout --detach $lock.commit
+          if ($LASTEXITCODE -ne 0) { throw 'Checkout failed' }
+          git -C upstream-play submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Submodule fetch failed' }
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+      - name: Configure and compile
+        shell: pwsh
+        run: |
+          cmake -S upstream-play -B play-build -G "Visual Studio 17 2022" -A x64 -DUSE_QT=ON -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+          cmake --build play-build --config Release --target Play --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Stage internal test artifact
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem play-build -Recurse -File -Filter Play.exe)
+          if ($exe.Count -ne 1) { throw 'Expected exactly one Play.exe' }
+          New-Item -ItemType Directory -Force engine/play | Out-Null
+          Copy-Item (Join-Path $exe[0].DirectoryName '*') engine/play -Recurse -Force
+          Copy-Item upstream-play/License.txt engine/play/Play-LICENSE.txt
+          if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt Windows platform plugin missing' }
+          Get-FileHash engine/play/Play.exe -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Play-engine-internal-test
+          path: engine/play/
+          if-no-files-found: error
+          retention-days: 3
