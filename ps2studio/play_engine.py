@@ -1,4 +1,4 @@
-"""Experimental Play! process adapter; not yet wired into the UI."""
+"""Process adapter for the bundled experimental Play! engine."""
 from pathlib import Path
 import subprocess
 import sys
