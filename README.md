@@ -1,101 +1,73 @@
-# PS2 Studio · Versión preliminar 0.3.0
+# PS2 Studio 0.4.0.dev0 — Play! experimental (NO publicar todavía)
 
-**PS2 Studio** es una aplicación independiente para Windows que organiza una
-biblioteca de juegos PS2 y los ejecuta mediante una instalación separada de
-**PCSX2**. **El programa no emula el hardware por sí solo ni modifica el código
-de PCSX2**: lo controla mediante su interfaz de línea de comandos oficial.
+**Esta rama es experimental.** No necesita PCSX2 ni lo integra: el motor de
+emulación es **Play!**, compilado desde la revisión fijada en
+[`tools/play-engine.lock.json`](tools/play-engine.lock.json). La versión
+pública actual, alojada en `main`, continúa siendo el lanzador 0.3 con PCSX2.
+No confundir la descarga pública `preview` con el motor experimental Play!.
 
-## Funciones de esta versión
+## Funciones implementadas en la rama experimental
 
-- Biblioteca con búsqueda por nombre, favoritos y filtro «Solo favoritos».
-- Vista lateral con carátulas PNG/GIF locales elegidas por el usuario y datos del archivo.
-- Detección de carátula con el mismo nombre base que la imagen de disco, si está en esa carpeta.
-- Sin descarga automática de portadas, API externas ni juegos incluidos.
-- Detección local opcional de PCSX2 en PATH o carpetas de instalación habituales; selección manual disponible.
-- Columnas de formato, tamaño y carpeta; los favoritos se guardan entre sesiones.
-- Búsqueda de imágenes de disco en carpetas y subcarpetas configurables.
-- Formatos: `.iso`, `.chd`, `.cso`, `.zso`, `.bin`, `.cue`, `.mdf`, `.gz`.
-- Evita duplicar una pareja habitual `.cue`/`.bin` con el mismo nombre base.
-- Ejecuta PCSX2 con `-batch [-fullscreen] -- <imagen_de_disco>`.
-- Guarda ajustes y favoritos localmente en `%APPDATA%\PS2Studio\settings.json`.
-- Sin cuentas, telemetría, descargas de BIOS ni servicios de pago.
+- Programa Windows con biblioteca, favoritos, búsqueda y carátulas PNG/GIF locales.
+- Inicio de un juego ISO con `Play.exe --disc archivo.iso`.
+- Inicio de homebrew PS2 ELF con `Play.exe --elf archivo.elf`.
+- Detecta Play! en `engine/play/Play.exe` (GPU nativa) y
+  `engine/play-mesa/Play.exe` (fallback Mesa local). No usa instalaciones de PCSX2.
+- Perfiles de resolución interna: auto/velocidad 1x, equilibrado 2x,
+  calidad 4x, ultra 8x para OpenGL con GPU nativa.
+- Mesa (renderizado software CPU) limitado a 1x, para no forzar escalado costoso.
+- Vulkan compilado en la versión experimental, disponible solo con hardware
+  adecuado, escala 1x y soporte verificado por Play! al arrancar.
+- Solo ISO y ELF están habilitados para iniciar mediante la integración actual;
+  otros formatos pueden aparecer en el listado, pero no se anuncian compatibles.
+- Preferencias locales y sin descarga de BIOS/juegos/ROMs ni datos de usuario enviados.
 
-## Ejecutar el código en Windows
+## Lo que está probado y lo que NO
 
-1. Instala [Python 3.11 o posterior](https://www.python.org/downloads/windows/) con tkinter.
-2. Descarga o clona el repositorio y abre una terminal en la carpeta raíz.
-3. Ejecuta `python app.py`.
-4. Si no se detecta automáticamente, pulsa **Seleccionar PCSX2** y elige `pcsx2-qt.exe`.
-5. Pulsa **Añadir carpeta** y selecciona una carpeta con tus copias legítimas de juegos.
-6. Selecciona un juego y pulsa **★ Favorito** para guardarlo, o activa **Solo favoritos** para filtrarlo.
-7. Haz doble clic en un juego o pulsa **Iniciar juego**.
+La CI de Windows comprueba bibliotecas, argumentos de ejecución, perfiles,
+construcción del motor Play!, arranque de su interfaz y empaquetado.
+El flujo `.github/workflows/play-engine.yml` también ejecuta una prueba
+con `cubes_demo.elf`, software casero de PS2 MIT de
+[glampert/ps2-homebrew](https://github.com/glampert/ps2-homebrew),
+revision `602441a6877a3136709d6320664340d52e3027a1`, comprobado por Git SHA.
+El ELF no se incluye en los paquetes de PS2 Studio.
 
-PCSX2 no está incluido. Instálalo desde https://pcsx2.net/downloads/ y completa
-su configuración inicial, incluida una BIOS extraída de tu propia PS2.
+**Las pruebas automáticas de compilación, ventana abierta o carga de ELF no
+demuestran FPS, ausencia de pantallas negras, audio, compatibilidad comercial,
+fluidez o estabilidad en una GPU de usuario.** No publicar la versión
+independiente hasta completar pruebas de renderizado, mandos y compatibilidad,
+además de revisar las licencias de las bibliotecas distribuidas.
 
-## Generar un .exe desde GitHub
+## Ejecutar la integración experimental
 
-Al subir este código a un repositorio de GitHub, el flujo
-`.github/workflows/windows.yml` ejecuta las pruebas en Windows y, si se superan,
-crea un ejecutable mediante PyInstaller. El archivo `PS2Studio.exe` aparecerá
-como artefacto **PS2Studio-Windows** en la ejecución de GitHub Actions.
+La aplicación sola, ejecutada con `python app.py`, no incluye Play!
+si no existe `engine/play/Play.exe` junto al ejecutable o a la raíz del
+repositorio. La CI experimental prepara una distribución completa para pruebas
+internas con las dos opciones de motor. No bajar ni ejecutar archivos de
+juegos de origen dudoso; utiliza homebrew libre o tus propios archivos legítimos.
 
-**Verificación de descarga:** la publicación preliminar también incluye `PS2Studio-Windows.zip.sha256`. Compara la suma mediante PowerShell: `Get-FileHash .\PS2Studio-Windows.zip -Algorithm SHA256`. Al publicar una versión nueva cambia la suma; utiliza siempre la del ZIP que acabas de descargar.
-
-**Descarga disponible:** [versión preliminar de Windows](https://github.com/kiikoo1995-ops/ps2-studio-windows/releases/tag/preview) generada por GitHub Actions. Es un lanzador, no una copia de PCSX2.
-
-**Web pública gratuita:** https://ps2-studio-windows.kiikoo1995.workers.dev/ · [Manual de PS2 Studio](https://ps2-studio-windows.kiikoo1995.workers.dev/guias/uso/).
-
-## Captura auténtica de la interfaz
-
-La imagen [site/assets/app-real-demo.png](site/assets/app-real-demo.png) se genera
-al ejecutar **PS2 Studio real** con `tkinter` en una pantalla virtual Linux/Xvfb,
-utilizando el script [tools/capture_app_demo.py](tools/capture_app_demo.py).
-Los archivos de juegos y las carátulas utilizados son ejemplos ficticios creados
-para la demostración. **No es una imagen de IA ni una prueba de funcionamiento
-con juegos comerciales o PCSX2 en Windows.** La compilación del EXE se comprueba
-por separado con GitHub Actions.
+1. En GitHub → Actions abre «Experimental Play! engine build» en la rama
+   `feature/play-engine`; el artefacto interno solo aparece si toda la CI pasa.
+2. Descarga el ZIP experimental completo de esa ejecución (no el ZIP estable).
+3. Extrae el directorio entero. No copies solo `PS2Studio.exe`.
+4. Abre PS2 Studio, añade una carpeta de ISO/ELF, configura el modo de gráficos
+   que soporte tu equipo y utiliza **Iniciar juego**.
+5. Los controles, gráficos y audio dependen del motor Play! y del dispositivo.
 
 ## Pruebas locales
 
-Desde la carpeta raíz:
-
-```sh
+```powershell
 python -m unittest discover -s tests -v
 ```
 
-Las pruebas comprueban guardado de configuración, errores de JSON, búsqueda de
-archivos, carpetas superpuestas, subcarpetas, parejas CUE/BIN, filtrado,
-argumentos de PCSX2 y ejecución sin shell con proceso simulado.
+## Publicación, derechos y coste
 
-No prueban compatibilidad de juegos comerciales, rendimiento gráfico ni BIOS.
-Estas comprobaciones necesitan Windows, PCSX2 instalado y archivos legítimos.
+Consulta [NOTICE.md](NOTICE.md) y el texto legal integrado
+`engine/play/Play-LICENSE.txt`. Play! es un proyecto de terceros y la app no
+está afiliada a Sony. La distribución del código frontal sigue siendo MIT.
+No se incluyen ROMs, juegos, BIOS ni carátulas comerciales. Presupuesto: 0 €.
 
-## Estructura
-
-```text
-PS2Studio/
-├── app.py                         # Entrada de la aplicación
-├── ps2studio/
-│   ├── config.py                  # Ajustes persistentes
-│   ├── library.py                 # Escáner de juegos
-│   ├── launcher.py                # Integración segura con PCSX2
-│   ├── ui.py                      # Interfaz gráfica
-│   └── __main__.py                # Ejecutar con python -m ps2studio
-├── tests/                         # Pruebas automáticas
-├── .github/workflows/windows.yml  # Pruebas y construcción .exe
-├── AGENTS.md                      # Instrucciones para Codex
-├── NOTICE.md                      # Avisos de PCSX2 y copyright
-└── LICENSE                        # Licencia del lanzador
-```
-
-## Evolución prevista
-
-- **v0.2:** favoritos persistentes y detección local de PCSX2 incluidos; pendientes historial y carátulas locales.
-- **v0.3:** panel de carátulas locales y detalles incluido; navegación con mando y perfiles gráficos todavía pendientes.
-- **v1.0:** distribución firmada y pruebas de integración con PCSX2 real (pendiente).
-
-## Licencias
-
-El **lanzador** es MIT; **PCSX2**, que se instala por separado, utiliza GPLv3+.
-Consulta [NOTICE.md](NOTICE.md). No se incluyen juegos, BIOS ni contenido de Sony.
+**Pendiente para release:** revisar dependencias/avisos de Qt y Mesa, validar
+capturas reales de homebrew y FPS sobre hardware Windows, comprobar controles,
+sonido y errores con archivos propios. No fusionar el PR #7 ni reemplazar
+la versión `preview` sin esas verificaciones.
