@@ -58,9 +58,16 @@ jobs:
           $exe = (Resolve-Path engine/play/Play.exe).Path
           $pdb = Join-Path (Split-Path $exe) 'Play.pdb'
           if (!(Test-Path $pdb)) { throw 'Matching Play.pdb missing' }
+          $dir = Split-Path $exe
+          $mesa = Join-Path $dir 'opengl32sw.dll'
+          $local = Join-Path $dir 'opengl32.dll'
+          if (!(Test-Path $mesa) -or (Test-Path $local)) { throw 'Unexpected Mesa library layout' }
+          Copy-Item $mesa $local
+          $env:QT_OPENGL = 'desktop'
+          'QT_OPENGL=desktop' | Out-File -FilePath $env:GITHUB_ENV -Append
           $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
           try {
-            Start-Sleep -Seconds 8
+            Start-Sleep -Seconds 12
             $proc.Refresh()
             if ($proc.HasExited) {
               Write-Host "Play startup failed: $($proc.ExitCode)"
@@ -73,7 +80,11 @@ jobs:
               } finally { Pop-Location }
               throw 'Play startup verification failed'
             }
-            Write-Host 'Play process remained alive for 8 seconds'
+            $modules = @($proc.Modules | Where-Object { $_.ModuleName -match 'opengl|libEGL|libGLES' })
+            $modules | Select-Object ModuleName,FileName | Format-Table | Out-String | Write-Host
+            if (!($modules | Where-Object { $_.FileName -eq $local })) { throw 'Local Mesa was not actually loaded' }
+            if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) { throw 'Play window absent or unresponsive' }
+            Write-Host 'APP_LOCAL_MESA_STARTUP_PASS'
           } finally {
             if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
           }
@@ -98,6 +109,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Play-engine-internal-test
-          path: engine/play/
+          path: |
+            engine/play/
+            PS2Studio-Play-internal.zip
           if-no-files-found: error
           retention-days: 3
