@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play, find_legacy_mesa, start_play_settings
+from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play, find_legacy_mesa, start_play_settings, graphics_environment
 
 
 class PlayEngineTests(unittest.TestCase):
@@ -94,3 +94,27 @@ class PlayEngineTests(unittest.TestCase):
     def test_missing_settings_engine(self):
         with self.assertRaises(LaunchError):
             start_play_settings(self.root / "missing.exe")
+
+    def test_auto_native_and_software_profiles(self):
+        (self.root / "ps2studio-profile-v1.txt").touch()
+        self.assertEqual(graphics_environment(self.exe, "auto")["PS2STUDIO_RESOLUTION"], "2")
+        (self.root / "opengl32.dll").touch()
+        self.assertEqual(graphics_environment(self.exe, "auto")["PS2STUDIO_RESOLUTION"], "1")
+
+    def test_quality_profile(self):
+        (self.root / "ps2studio-profile-v1.txt").touch()
+        self.assertEqual(graphics_environment(self.exe, "quality")["PS2STUDIO_RESOLUTION"], "4")
+        self.assertEqual(graphics_environment(self.exe, "ultra")["PS2STUDIO_RESOLUTION"], "8")
+
+    def test_vulkan_restrictions(self):
+        (self.root / "ps2studio-profile-v1.txt").touch()
+        self.assertEqual(graphics_environment(self.exe, "auto", True)["PS2STUDIO_RENDERER"], "vulkan")
+        with self.assertRaises(LaunchError):
+            graphics_environment(self.exe, "quality", True)
+        (self.root / "opengl32.dll").touch()
+        with self.assertRaises(LaunchError):
+            graphics_environment(self.exe, "speed", True)
+
+    def test_old_engine_rejects_profile(self):
+        with self.assertRaises(LaunchError):
+            graphics_environment(self.exe, "auto")

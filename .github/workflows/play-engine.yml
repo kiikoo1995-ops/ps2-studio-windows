@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/play-engine.yml'
+      - 'tools/patch_play_profiles.py'
       - 'tools/play-engine.lock.json'
 concurrency:
   group: play-engine-${{ github.event.pull_request.number || github.ref }}
@@ -34,11 +35,24 @@ jobs:
         with:
           version: '5.15.2'
           arch: win64_msvc2019_64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply verified-source graphics profile hook
+        run: python tools/patch_play_profiles.py upstream-play
+      - name: Prepare free Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@c25f41106918cde0bf347e6f201277392b3a9e9d
+        with:
+          vulkan-query-version: '1.3.296.0'
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: false
       - name: Configure and compile
         shell: pwsh
         run: |
-          cmake -S upstream-play -B play-build -G "Visual Studio 17 2022" -A x64 -DUSE_QT=ON -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          cmake -S upstream-play -B play-build -G "Visual Studio 17 2022" -A x64 -DUSE_QT=ON -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" 2>&1 | Tee-Object -FilePath cmake-config.log
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+          if (!(Select-String -Path cmake-config.log -SimpleMatch 'Building with Vulkan support.')) { throw 'Vulkan backend was not enabled' }
+          Write-Host 'VULKAN_CONFIGURED'
           cmake --build play-build --config RelWithDebInfo --target Play --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
       - name: Stage internal test artifact
@@ -50,6 +64,7 @@ jobs:
           Copy-Item (Join-Path $exe[0].DirectoryName '*') engine/play -Recurse -Force
           Copy-Item upstream-play/License.txt engine/play/Play-LICENSE.txt
           if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt Windows platform plugin missing' }
+          Set-Content engine/play/ps2studio-profile-v1.txt 'Graphics profiles v1; Vulkan build enabled'
           Get-FileHash engine/play/Play.exe -Algorithm SHA256
       - name: Verify startup and diagnose with matching native symbols
         shell: pwsh
@@ -64,6 +79,8 @@ jobs:
           if (!(Test-Path $mesa) -or (Test-Path $local)) { throw 'Unexpected Mesa library layout' }
           Copy-Item $mesa $local
           $env:QT_OPENGL = 'desktop'
+          $env:PS2STUDIO_RENDERER = 'opengl'
+          $env:PS2STUDIO_RESOLUTION = '4'
           'QT_OPENGL=desktop' | Out-File -FilePath $env:GITHUB_ENV -Append
           $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
           try {
@@ -84,16 +101,19 @@ jobs:
             $modules | Select-Object ModuleName,FileName | Format-Table | Out-String | Write-Host
             if (!($modules | Where-Object { $_.FileName -eq $local })) { throw 'Local Mesa was not actually loaded' }
             if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) { throw 'Play window absent or unresponsive' }
-            Write-Host 'APP_LOCAL_MESA_STARTUP_PASS'
+            Write-Host 'APP_LOCAL_MESA_STARTUP_PASS (4x requested; no game rendering or FPS verified)'
           } finally {
             if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
           }
       - name: Remove native symbols from staged distribution
         shell: pwsh
         run: Get-ChildItem engine/play -Recurse -File -Filter '*.pdb' | Remove-Item -Force
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Separate native graphics and Mesa fallback
+        shell: pwsh
+        run: |
+          Copy-Item engine/play engine/play-mesa -Recurse
+          Remove-Item engine/play/opengl32.dll -ErrorAction Stop
+          if (!(Test-Path engine/play-mesa/opengl32.dll) -or (Test-Path engine/play/opengl32.dll)) { throw 'Invalid graphics layout' }
       - name: Verify application and assemble autonomous package
         shell: pwsh
         run: |
@@ -111,6 +131,7 @@ jobs:
           name: Play-engine-internal-test
           path: |
             engine/play/
+            engine/play-mesa/
             PS2Studio-Play-internal.zip
           if-no-files-found: error
           retention-days: 3

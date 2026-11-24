@@ -37,6 +37,8 @@ class PS2StudioApp:
         self.software_var = tk.BooleanVar(value=self.native_engine is None and self.software_engine is not None)
         self.engine_path = self.software_engine if self.software_var.get() else self.native_engine
         self.play_process = None
+        self.profile_var = tk.StringVar(value="auto")
+        self.vulkan_var = tk.BooleanVar(value=False)
         self._configure_window()
         self._build_widgets()
         self.refresh_games()
@@ -110,8 +112,17 @@ class PS2StudioApp:
                         value=True, command=self._change_graphics,
                         state="normal" if self.software_engine else "disabled").pack(side="left")
         ttk.Button(graphics, text="Ajustes de vídeo", command=self.open_video_settings).pack(side="right", padx=(8, 0))
-        ttk.Label(outer, text="CALIDAD   /   1x nativa · 2x (~960p) · 4x (~1920p)   |   Ajustable en Play! según GPU y juego.",
-                  style="Sub.TLabel").pack(anchor="w", pady=(0, 8))
+        profiles = ttk.Frame(outer)
+        profiles.pack(fill="x", pady=(0, 8))
+        ttk.Label(profiles, text="Perfil:").pack(side="left")
+        self.profile_box = ttk.Combobox(profiles, textvariable=self.profile_var, state="readonly",
+                                       values=("auto", "speed", "balanced", "quality", "ultra"), width=12)
+        self.profile_box.pack(side="left", padx=8)
+        self.vulkan_box = ttk.Checkbutton(profiles, text="Vulkan experimental (1x)", variable=self.vulkan_var)
+        self.vulkan_box.pack(side="left", padx=8)
+        ttk.Label(profiles, text="Auto: GPU 2x / Mesa 1x · speed 1x · balanced 2x · quality 4x · ultra 8x",
+                  style="Sub.TLabel").pack(side="left")
+        self._refresh_profiles()
 
         options = ttk.Frame(outer)
         options.pack(fill="x", pady=(3, 9))
@@ -190,9 +201,17 @@ class PS2StudioApp:
         software = self.software_var.get()
         self.root.after(12000, lambda: self._check_startup(process, software))
 
+    def _refresh_profiles(self) -> None:
+        supported = self.engine_path is not None and (self.engine_path.parent / "ps2studio-profile-v1.txt").is_file()
+        self.profile_box.configure(state="readonly" if supported else "disabled")
+        self.vulkan_box.configure(state="normal" if supported and not self.software_var.get() else "disabled")
+        if not supported or self.software_var.get():
+            self.vulkan_var.set(False)
+
     def _change_graphics(self) -> None:
         self.engine_path = self.software_engine if self.software_var.get() else self.native_engine
         self._refresh_path_labels()
+        self._refresh_profiles()
         self.status_var.set("Modo gráfico para el próximo inicio del juego.")
 
     def _refresh_path_labels(self) -> None:
@@ -363,7 +382,10 @@ class PS2StudioApp:
             if self.play_process is not None and self.play_process.poll() is None:
                 messagebox.showinfo("Play!", "Cierra el juego actual antes de iniciar otro.")
                 return
-            self.play_process = start_play(self.engine_path, game.path, fullscreen=self.fullscreen_var.get())
+            supported = (self.engine_path.parent / "ps2studio-profile-v1.txt").is_file()
+            self.play_process = start_play(self.engine_path, game.path, fullscreen=self.fullscreen_var.get(),
+                                           profile=self.profile_var.get() if supported else None,
+                                           vulkan=self.vulkan_var.get() if supported else False)
         except LaunchError as exc:
             messagebox.showerror("No se pudo iniciar", str(exc))
             return
