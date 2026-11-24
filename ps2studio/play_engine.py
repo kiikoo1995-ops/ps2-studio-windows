@@ -1,5 +1,6 @@
 """Process adapter for the bundled experimental Play! engine."""
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -22,8 +23,21 @@ def build_play_command(executable: str | Path, game: str | Path, *, fullscreen: 
 
 def start_play(executable: str | Path, game: str | Path, *, fullscreen: bool = False) -> subprocess.Popen:
     command = build_play_command(executable, game, fullscreen=fullscreen)
+    return _start_command(command)
+
+
+def start_play_settings(executable: str | Path) -> subprocess.Popen:
+    """Open the real Play! settings interface without booting a disc."""
+    exe = Path(executable).expanduser()
+    if not exe.is_file() or exe.name.lower() != "play.exe":
+        raise LaunchError("No se encuentra el ejecutable Play.exe.")
+    return _start_command([str(exe.resolve())])
+
+
+def _start_command(command: list[str]) -> subprocess.Popen:
+    env = dict(os.environ, QT_OPENGL="desktop")
     try:
-        return subprocess.Popen(command, cwd=str(Path(command[0]).parent), shell=False)
+        return subprocess.Popen(command, cwd=str(Path(command[0]).parent), shell=False, env=env)
     except OSError as exc:
         raise LaunchError(f"No se pudo iniciar Play!: {exc}") from exc
 

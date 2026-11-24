@@ -1,9 +1,10 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play, find_legacy_mesa
+from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play, find_legacy_mesa, start_play_settings
 
 
 class PlayEngineTests(unittest.TestCase):
@@ -41,7 +42,8 @@ class PlayEngineTests(unittest.TestCase):
     def test_process(self, popen):
         self.assertIs(start_play(self.exe, self.disc), popen.return_value)
         popen.assert_called_once_with(build_play_command(self.exe, self.disc),
-                                      cwd=str(self.root.resolve()), shell=False)
+                                      cwd=str(self.root.resolve()), shell=False,
+                                      env=dict(os.environ, QT_OPENGL="desktop"))
 
     @patch("ps2studio.play_engine.subprocess.Popen", side_effect=OSError("test"))
     def test_process_error(self, popen):
@@ -82,3 +84,13 @@ class PlayEngineTests(unittest.TestCase):
         mesa.parent.mkdir(parents=True)
         mesa.touch()
         self.assertIsNone(find_bundled_play(self.root, software=True))
+
+    @patch("ps2studio.play_engine.subprocess.Popen")
+    def test_open_real_settings_without_disc(self, popen):
+        self.assertIs(start_play_settings(self.exe), popen.return_value)
+        popen.assert_called_once_with([str(self.exe.resolve())], cwd=str(self.root.resolve()),
+                                      shell=False, env=dict(os.environ, QT_OPENGL="desktop"))
+
+    def test_missing_settings_engine(self):
+        with self.assertRaises(LaunchError):
+            start_play_settings(self.root / "missing.exe")
