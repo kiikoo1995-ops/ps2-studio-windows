@@ -6,10 +6,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
 
-from .autodetect import find_pcsx2
 from .config import AppConfig, ConfigError, ConfigStore
 from .cover_art import CoverError, validate_cover, suggested_cover
-from .launcher import LaunchError, start_game
+from .play_engine import LaunchError, find_bundled_play, start_play
 from .library import Game, favorite_key, filter_games, scan_games
 
 
@@ -33,7 +32,7 @@ class PS2StudioApp:
         self.cover_photo = None
         self.details_title = tk.StringVar(value="Selecciona un juego")
         self.details_text = tk.StringVar(value="No hay juego seleccionado.")
-        self._auto_detect_pcsx2()
+        self.engine_path = find_bundled_play()
         self._configure_window()
         self._build_widgets()
         self.refresh_games()
@@ -57,11 +56,10 @@ class PS2StudioApp:
         title = ttk.Frame(outer)
         title.pack(fill="x", pady=(0, 14))
         ttk.Label(title, text="PS2 Studio", style="Title.TLabel").pack(side="left")
-        ttk.Label(title, text="Biblioteca local · Motor PCSX2", style="Sub.TLabel").pack(side="left", padx=16, pady=12)
+        ttk.Label(title, text="Biblioteca local · Motor Play! (experimental)", style="Sub.TLabel").pack(side="left", padx=16, pady=12)
 
         toolbar = ttk.Frame(outer)
         toolbar.pack(fill="x", pady=(0, 10))
-        ttk.Button(toolbar, text="Seleccionar PCSX2", command=self.choose_emulator).pack(side="left", padx=(0, 6))
         ttk.Button(toolbar, text="Añadir carpeta", command=self.add_folder).pack(side="left", padx=(0, 6))
         ttk.Button(toolbar, text="Quitar carpeta", command=self.remove_folder).pack(side="left", padx=(0, 6))
         ttk.Button(toolbar, text="Actualizar", command=self.refresh_games).pack(side="left", padx=(0, 6))
@@ -126,25 +124,11 @@ class PS2StudioApp:
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
         ttk.Label(footer, textvariable=self.status_var).pack(side="left")
-        ttk.Button(footer, text="Web oficial PCSX2", command=lambda: webbrowser.open("https://pcsx2.net/downloads/")).pack(side="right", padx=(8, 0))
+        ttk.Button(footer, text="Web oficial Play!", command=lambda: webbrowser.open("https://purei.org/")).pack(side="right", padx=(8, 0))
         ttk.Button(footer, text="Iniciar juego", style="Play.TButton", command=self.play_selected).pack(side="right")
 
-    def _auto_detect_pcsx2(self) -> None:
-        current = self.settings.pcsx2_path
-        if current and Path(current).is_file() and Path(current).name.lower() in {"pcsx2-qt.exe", "pcsx2.exe"}:
-            return
-        detected = find_pcsx2()
-        if detected:
-            self.settings.pcsx2_path = detected
-            try:
-                self.store.save(self.settings)
-            except ConfigError as exc:
-                messagebox.showwarning("Detección de PCSX2", f"Se detectó PCSX2 pero no se pudieron guardar los ajustes: {exc}")
-            self.status_var.set("PCSX2 detectado automáticamente")
-
     def _refresh_path_labels(self) -> None:
-        # The best-effort detector runs only at startup; manual selection remains possible.
-        self.exe_label.configure(text=f"Emulador: {self.settings.pcsx2_path or '(sin configurar)'}")
+        self.exe_label.configure(text=f"Emulador: {self.engine_path or '(motor integrado no encontrado)'}")
         self.paths_label.configure(text="Juegos: " + (" | ".join(self.settings.game_directories) or "(añade una carpeta)") )
 
     def _save_options(self) -> None:
@@ -158,17 +142,6 @@ class PS2StudioApp:
     def _change_recursive(self) -> None:
         self._save_options()
         self.refresh_games()
-
-    def choose_emulator(self) -> None:
-        chosen = filedialog.askopenfilename(title="Seleccionar PCSX2", filetypes=[("PCSX2", "pcsx2-qt.exe pcsx2.exe"), ("Ejecutables", "*.exe")])
-        if not chosen:
-            return
-        if Path(chosen).name.lower() not in {"pcsx2-qt.exe", "pcsx2.exe"}:
-            messagebox.showerror("Archivo no válido", "Selecciona pcsx2-qt.exe o pcsx2.exe")
-            return
-        self.settings.pcsx2_path = chosen
-        self._save_options()
-        self._refresh_path_labels()
 
     def add_folder(self) -> None:
         chosen = filedialog.askdirectory(title="Carpeta de juegos PS2")
@@ -316,7 +289,9 @@ class PS2StudioApp:
         if game is None:
             return
         try:
-            start_game(self.settings.pcsx2_path, game.path, fullscreen=self.fullscreen_var.get())
+            if self.engine_path is None:
+                raise LaunchError("Falta el motor Play! integrado en esta distribución experimental.")
+            start_play(self.engine_path, game.path, fullscreen=self.fullscreen_var.get())
         except LaunchError as exc:
             messagebox.showerror("No se pudo iniciar", str(exc))
             return
