@@ -138,10 +138,14 @@ jobs:
           }
           $marker = Join-Path (Resolve-Path homebrew-test).Path 'elf-boot-confirmed.txt'
           $env:PS2STUDIO_CI_ELF_MARKER = $marker
+          $env:PS2STUDIO_CI_CAPTURE_FRAME = '1'
+          $portable = Join-Path (Split-Path $exe) 'portable.txt'
+          $portableData = Join-Path (Split-Path $exe) 'Play Data Files'
+          New-Item -ItemType File -Path $portable -Force | Out-Null
           $proc = $null
           try {
             $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -ArgumentList @('--elf', $elf) -PassThru
-            Start-Sleep -Seconds 18
+            Start-Sleep -Seconds 23
             $proc.Refresh()
             if ($proc.HasExited) { throw "Play homebrew process terminated: $($proc.ExitCode)" }
             if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) {
@@ -154,17 +158,43 @@ jobs:
             }
             $cpuMs = [math]::Round($proc.TotalProcessorTime.TotalMilliseconds)
             Write-Host "HOMEBREW_ELF_BOOT_PASS: MIT ELF passed through actual Play BootElf and VM resumed; CPU_ms=$cpuMs"
-            # Best-effort diagnostic only: hosted Windows runners may not provide
-            # a real display framebuffer even though a Qt main window exists.
+            # This is the guest GS framebuffer, not a Windows desktop screenshot.
+            $screenshots = Join-Path $portableData 'screenshots'
+            $frames = @(Get-ChildItem -Path $screenshots -Filter '*.bmp' -File -ErrorAction SilentlyContinue)
+            if ($frames.Count -eq 0) {
+              throw 'GUEST_FRAME_MISSING: Play! did not complete a GS flip/capture for the homebrew ELF'
+            }
+            $frame = $frames | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Add-Type -AssemblyName System.Drawing
+            $bitmap = [System.Drawing.Bitmap]::new($frame.FullName)
             try {
-              Add-Type -AssemblyName System.Drawing
-              $image = New-Object System.Drawing.Bitmap(1280, 720)
-              $graphics = [System.Drawing.Graphics]::FromImage($image)
-              try {
-                $graphics.CopyFromScreen(0, 0, 0, 0, $image.Size)
-                $image.Save((Join-Path (Resolve-Path homebrew-test).Path 'display-diagnostic.png'), [System.Drawing.Imaging.ImageFormat]::Png)
-                Write-Host 'DISPLAY_DIAGNOSTIC_CAPTURED (not proof of guest frames)'
-              } finally {
+              if ($bitmap.Width -lt 128 -or $bitmap.Height -lt 128) {
+                throw "GUEST_FRAME_INVALID_DIMENSIONS: $($bitmap.Width)x$($bitmap.Height)"
+              }
+              $count = 0
+              $lit = 0
+              $colours = New-Object 'System.Collections.Generic.HashSet[int]'
+              for ($y = 0; $y -lt $bitmap.Height; $y += 12) {
+                for ($x = 0; $x -lt $bitmap.Width; $x += 12) {
+                  $pixel = $bitmap.GetPixel($x, $y)
+                  $count++
+                  if ([int]$pixel.R + [int]$pixel.G + [int]$pixel.B -gt 75) { $lit++ }
+                  [void]$colours.Add($pixel.ToArgb())
+                }
+              }
+              $percent = [math]::Round(100 * $lit / $count, 2)
+              Write-Host "GUEST_FRAME_METRICS: size=$($bitmap.Width)x$($bitmap.Height), samples=$count, lit=$lit ($percent%), distinct_colours=$($colours.Count)"
+              if ($lit -lt [math]::Max(8, [int]($count * 0.004)) -or $colours.Count -lt 4) {
+                throw "GUEST_FRAME_BLACK_OR_STATIC: too few visible pixels/colours"
+              }
+              $destination = Join-Path (Resolve-Path homebrew-test).Path 'guest-frame.bmp'
+              Copy-Item -LiteralPath $frame.FullName -Destination $destination -Force
+              Write-Host 'GUEST_FRAME_NONBLACK_PASS: real Play GS framebuffer saved for inspection'
+            } finally {
+              $bitmap.Dispose()
+            }
+            Write-Host 'LIMITATION: a non-black homebrew frame does not establish FPS, sound, controls, or commercial-game compatibility.'
+          } finally {
                 $graphics.Dispose()
                 $image.Dispose()
               }
@@ -174,6 +204,8 @@ jobs:
             Write-Host 'LIMITATION: Guest frame content, input controls, GPU performance and commercial-game FPS still unverified.'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Remove-Item -LiteralPath $portable -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $portableData -Recurse -Force -ErrorAction SilentlyContinue
           }
       - name: Upload homebrew diagnostics (no game or ELF included)
         if: always()
@@ -182,7 +214,7 @@ jobs:
           name: Play-homebrew-smoke-diagnostics
           path: |
             homebrew-test/elf-boot-confirmed.txt
-            homebrew-test/display-diagnostic.png
+            homebrew-test/guest-frame.bmp
           if-no-files-found: warn
           retention-days: 3
       - name: Remove native symbols from staged distribution

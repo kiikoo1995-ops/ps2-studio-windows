@@ -55,6 +55,15 @@ boot_report = r'''
             studioBootReport.flush();
         }
     }
+    // Ask the real GS handler to save a guest framebuffer after the ELF boots.
+    // It uses Play!'s existing ScreenShotUtils and fires on a real GS flip.
+    if(!qgetenv("PS2STUDIO_CI_CAPTURE_FRAME").isEmpty())
+    {
+        QTimer::singleShot(6000, this, [this]() {
+            m_screenShotCompleteConnection = CScreenShotUtils::TriggerGetScreenshot(
+                m_virtualMachine, [](int, const char*) -> void {});
+        });
+    }
 '''
 window_text = window_text.replace(boot_anchor, boot_anchor + boot_report)
 window_text = window_text.replace("#include <QFileDialog>", "#include <QFile>\n#include <QFileDialog>", 1)
