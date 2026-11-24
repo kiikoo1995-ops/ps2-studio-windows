@@ -62,6 +62,11 @@ try {
   $allAvg = [math]::Round(($samples | Measure-Object -Average).Average, 1)
   $zeroSamples = @($samples | Where-Object { $_ -eq 0 }).Count
   Write-Host "GUEST_FPS_MEASURED: positive_average=$avgFps positive_min=$minFps max=$maxFps all_average=$allAvg zero_samples=$zeroSamples total_samples=$($samples.Count) (hosted Windows CPU/Mesa)"
+  $frameLog = $framePath + '.log'
+  if (Test-Path $frameLog) { Get-Content -LiteralPath $frameLog | Select-Object -Last 20 | ForEach-Object { Write-Host $_ } }
+  else { Write-Warning 'No GS presentation hook log: VM ticks alone do not establish rendered frames.' }
+  $flipLog = $framePath + '.flips.tsv'
+  if (Test-Path $flipLog) { Write-Host "GS_PRESENTATION_LOG_ROWS: $(@(Get-Content $flipLog).Count)" }
   if (!(Test-Path $framePath)) { throw 'GUEST_FRAME_MISSING: no pre-swap OpenGL framebuffer capture' }
   Add-Type -AssemblyName System.Drawing
   $bitmap = [System.Drawing.Bitmap]::new($framePath)

@@ -79,48 +79,92 @@ window_text = window_text.replace(stats_anchor, stats_hook + stats_anchor)
 mainwindow.write_text(window_text, encoding="utf-8")
 
 
-# The pinned OpenGL GetScreenshot() returns an empty bitmap (#if 0).
-# Capture the actual composed guest output immediately before PresentBackbuffer.
-# Enabled only by an explicit CI environment path, never during normal gameplay.
+# Instrument real GS presentation, independent of the disabled GetScreenshot API.
+# Diagnostics are opt-in: no per-frame I/O for normal gameplay.
 gl_source = Path(sys.argv[1]) / "Source/gs/GSH_OpenGL/GSH_OpenGL.cpp"
 gl_text = gl_source.read_text(encoding="utf-8")
 gl_include = '#include "GSH_OpenGL.h"'
 if gl_text.count(gl_include) != 1:
     raise SystemExit("Unexpected OpenGL include anchor")
-gl_text = gl_text.replace(gl_include, gl_include + '\n#include "bitmap/BMP.h"\n#include "StdStream.h"\n#include <cstdlib>', 1)
+gl_text = gl_text.replace(gl_include, gl_include + '\n#include <cstdlib>\n#include <fstream>\n#include <chrono>\n#include <vector>\n#include <cstdint>', 1)
 flip_anchor = "\tPresentBackbuffer();\n\tCGSHandler::FlipImpl(dispInfo);"
 if gl_text.count(flip_anchor) != 1:
     raise SystemExit("Unexpected OpenGL flip anchor")
 capture = r'''
 #ifndef GLES_COMPATIBILITY
-    // Test the real OpenGL presentation framebuffer before swapping buffers.
     static const char* studioFramePath = std::getenv("PS2STUDIO_CI_FRAME_PATH");
-    static unsigned int studioVisibleFlips = 0;
-    static bool studioCaptured = false;
-    if(studioFramePath && *studioFramePath && framebuffer && !studioCaptured)
+    if(studioFramePath && *studioFramePath)
     {
-        if(++studioVisibleFlips >= 120)
+        using StudioClock = std::chrono::steady_clock;
+        static const auto studioStart = StudioClock::now();
+        static unsigned int studioFlips = 0;
+        static bool studioCaptured = false;
+        static std::ofstream studioLog(std::string(studioFramePath) + ".log");
+        static std::ofstream studioTiming(std::string(studioFramePath) + ".flips.tsv");
+        const auto studioUs = std::chrono::duration_cast<std::chrono::microseconds>(StudioClock::now() - studioStart).count();
+        const auto width = m_presentationParams.windowWidth;
+        const auto height = m_presentationParams.windowHeight;
+        ++studioFlips;
+        studioTiming << studioUs << '\t' << (framebuffer ? 1 : 0) << '\t' << m_fbScale << '\n';
+        if(studioFlips == 1 || studioFlips % 30 == 0)
         {
-            const auto width = m_presentationParams.windowWidth;
-            const auto height = m_presentationParams.windowHeight;
-            if(width >= 128 && height >= 128 && width <= 4096 && height <= 4096)
+            const auto renderer = glGetString(GL_RENDERER);
+            studioLog << "flip=" << studioFlips << " layer_enabled=" << dispLayer.enabled
+                      << " guest_buffer=" << bool(framebuffer) << " scale=" << m_fbScale
+                      << " output=" << width << "x" << height << " guest=" << dispLayer.width
+                      << "x" << dispLayer.height << " renderer="
+                      << (renderer ? reinterpret_cast<const char*>(renderer) : "unavailable") << std::endl;
+            studioTiming.flush();
+        }
+        // Keep evidence even if black. Try early and periodically to avoid
+        // assuming a particular guest generates 120 display flips.
+        if(!studioCaptured && framebuffer && width >= 128 && height >= 128 &&
+           width <= 4096 && height <= 4096 && (studioFlips <= 3 || studioFlips % 30 == 0))
+        {
+            try
             {
-                try
+                glBindFramebuffer(GL_FRAMEBUFFER, m_presentFramebuffer);
+                for(unsigned int i = 0; i < 8; i++) { if(glGetError() == GL_NO_ERROR) break; }
+                std::vector<unsigned char> rgba(size_t(width) * height * 4);
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+                const auto error = glGetError();
+                studioLog << "readback=" << error << " flip=" << studioFlips << std::endl;
+                if(error == GL_NO_ERROR)
                 {
-                    glBindFramebuffer(GL_FRAMEBUFFER, m_presentFramebuffer);
-                    auto bitmap = Framework::CBitmap(width, height, 32);
-                    glReadPixels(0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bitmap.GetPixels());
-                    if(glGetError() == GL_NO_ERROR)
+                    // Write standard 24-bit bottom-up BMP ourselves, so a
+                    // framework screenshot writer cannot silently discard it.
+                    const uint32_t stride = (uint32_t(width) * 3 + 3) & ~uint32_t(3);
+                    const uint32_t dataSize = stride * uint32_t(height);
+                    unsigned char header[54] = {};
+                    auto put32 = [&](unsigned int off, uint32_t value) {
+                        for(unsigned int i = 0; i < 4; ++i) header[off+i] = (value >> (8*i)) & 255;
+                    };
+                    header[0] = 'B'; header[1] = 'M';
+                    put32(2, 54 + dataSize); put32(10, 54); put32(14, 40);
+                    put32(18, width); put32(22, height);
+                    header[26] = 1; header[28] = 24; put32(34, dataSize);
+                    std::ofstream bmp(studioFramePath, std::ios::binary | std::ios::trunc);
+                    bmp.write(reinterpret_cast<const char*>(header), sizeof(header));
+                    std::vector<unsigned char> row(stride, 0);
+                    unsigned int lit = 0;
+                    for(unsigned int y = 0; y < height; ++y)
                     {
-                        Framework::CStdStream stream(studioFramePath, "wb");
-                        Framework::CBMP::WriteBitmap(bitmap, stream);
-                        studioCaptured = true;
+                        for(unsigned int x = 0; x < width; ++x)
+                        {
+                            const auto src = (size_t(y) * width + x) * 4;
+                            row[3*x] = rgba[src+2]; row[3*x+1] = rgba[src+1]; row[3*x+2] = rgba[src];
+                            if(unsigned(rgba[src])+rgba[src+1]+rgba[src+2] > 75) ++lit;
+                        }
+                        bmp.write(reinterpret_cast<const char*>(row.data()), row.size());
                     }
+                    bmp.close();
+                    studioLog << "bmp_write=" << bool(bmp) << " lit_pixels=" << lit << std::endl;
+                    studioCaptured = bool(bmp) && lit >= (uint64_t(width)*height)/100;
                 }
-                catch(const std::exception&)
-                {
-                    // CI will fail if a valid screenshot is not produced.
-                }
+            }
+            catch(const std::exception& e)
+            {
+                studioLog << "capture_exception=" << e.what() << std::endl;
             }
         }
     }

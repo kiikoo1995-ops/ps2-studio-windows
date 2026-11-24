@@ -121,6 +121,8 @@ jobs:
           path: |
             homebrew-test/elf-boot-confirmed.txt
             homebrew-test/guest-frame.bmp
+            homebrew-test/guest-frame.bmp.log
+            homebrew-test/guest-frame.bmp.flips.tsv
             homebrew-test/guest-stats.tsv
           if-no-files-found: warn
           retention-days: 3
