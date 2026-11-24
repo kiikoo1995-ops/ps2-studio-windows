@@ -10,7 +10,7 @@ class ConfigTests(unittest.TestCase):
     def test_new_config_has_safe_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
             config = ConfigStore(Path(folder) / "missing.json").load()
-            self.assertEqual(config.pcsx2_path, "")
+            self.assertFalse(hasattr(config, "pcsx2_path"))
             self.assertEqual(config.game_directories, [])
             self.assertFalse(config.fullscreen)
             self.assertTrue(config.recursive)
@@ -19,7 +19,7 @@ class ConfigTests(unittest.TestCase):
     def test_roundtrip_unicode_spaces(self):
         with tempfile.TemporaryDirectory() as folder:
             store = ConfigStore(Path(folder) / "nested" / "settings.json")
-            original = AppConfig("C:/Emuladores PS2/pcsx2-qt.exe", ["D:/Juegos PS2", "D:/Niñez"], True, False)
+            original = AppConfig(game_directories=["D:/Juegos PS2", "D:/Niñez"], fullscreen=True, recursive=False)
             store.save(original)
             self.assertEqual(store.load(), original)
 
@@ -48,9 +48,12 @@ class ConfigTests(unittest.TestCase):
             store.path.write_text(json.dumps(older), encoding="utf-8")
             cfg = store.load()
             self.assertEqual(cfg.favorites, [])
+            self.assertEqual(cfg.game_directories, ["D:/PS2"])
+            self.assertFalse(hasattr(cfg, "pcsx2_path"))
             cfg.favorites = ["D:/PS2/Juego.iso", "D:/PS2/Otro.chd"]
             store.save(cfg)
             self.assertEqual(store.load().favorites, cfg.favorites)
+            self.assertNotIn("pcsx2_path", json.loads(store.path.read_text(encoding="utf-8")))
 
     def test_local_covers_are_optional_and_persisted(self):
         with tempfile.TemporaryDirectory() as folder:
