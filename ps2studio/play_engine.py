@@ -3,7 +3,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .launcher import LaunchError
+class LaunchError(Exception):
+    """Could not validate or launch the bundled Play! engine."""
 
 # Conservative initial scope; other formats require integration testing.
 PLAY_EXTENSIONS = frozenset({".iso"})
