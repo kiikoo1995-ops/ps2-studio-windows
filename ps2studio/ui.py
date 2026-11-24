@@ -210,6 +210,8 @@ class PS2StudioApp:
 
     def _change_graphics(self) -> None:
         self.engine_path = self.software_engine if self.software_var.get() else self.native_engine
+        if self.software_var.get() and self.profile_var.get() in {"balanced", "quality", "ultra"}:
+            self.profile_var.set("auto")
         self._refresh_path_labels()
         self._refresh_profiles()
         self.status_var.set("Modo gráfico para el próximo inicio del juego.")

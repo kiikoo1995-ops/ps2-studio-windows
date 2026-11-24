@@ -113,6 +113,19 @@ class PlayEngineTests(unittest.TestCase):
         self.assertEqual(graphics_environment(self.exe, "quality")["PS2STUDIO_RESOLUTION"], "4")
         self.assertEqual(graphics_environment(self.exe, "ultra")["PS2STUDIO_RESOLUTION"], "8")
 
+    def test_software_fallback_rejects_high_resolution(self):
+        (self.root / "ps2studio-profile-v1.txt").touch()
+        (self.root / "opengl32.dll").touch()
+        for profile in ("balanced", "quality", "ultra"):
+            with self.subTest(profile=profile):
+                with self.assertRaisesRegex(LaunchError, "Mesa"):
+                    graphics_environment(self.exe, profile)
+        self.assertEqual(graphics_environment(self.exe, "speed")["PS2STUDIO_RESOLUTION"], "1")
+
+    def test_vulkan_requires_explicit_profile(self):
+        with self.assertRaisesRegex(LaunchError, "perfil"):
+            graphics_environment(self.exe, None, True)
+
     def test_vulkan_restrictions(self):
         (self.root / "ps2studio-profile-v1.txt").touch()
         self.assertEqual(graphics_environment(self.exe, "auto", True)["PS2STUDIO_RENDERER"], "vulkan")
