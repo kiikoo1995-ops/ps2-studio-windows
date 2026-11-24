@@ -6,6 +6,9 @@ on:
       - '.github/workflows/play-engine.yml'
       - 'tools/patch_play_profiles.py'
       - 'tools/play-engine.lock.json'
+      - 'ps2studio/**'
+      - 'tests/**'
+      - '.github/workflows/play-package.yml'
 concurrency:
   group: play-engine-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
@@ -104,6 +107,49 @@ jobs:
             Write-Host 'APP_LOCAL_MESA_STARTUP_PASS (4x requested; no game rendering or FPS verified)'
           } finally {
             if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+      - name: Boot MIT PS2 homebrew ELF as an emulation smoke test
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Open-source MIT PS2 demo; never distributed with PS2 Studio.
+          $sourceCommit = '602441a6877a3136709d6320664340d52e3027a1'
+          $sourceBlob = '27373da3d4fdf547d12910b6eb66db56598d0308'
+          New-Item -ItemType Directory -Force homebrew-test | Out-Null
+          $elf = Join-Path (Resolve-Path homebrew-test).Path 'cubes_demo.elf'
+          $url = "https://raw.githubusercontent.com/glampert/ps2-homebrew/$sourceCommit/source/demos/bin/cubes_demo.elf"
+          Invoke-WebRequest -Uri $url -OutFile $elf
+          if ((Get-Item $elf).Length -ne 243288) { throw 'Unexpected homebrew ELF size' }
+          $actualBlob = (& git hash-object $elf).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualBlob -ne $sourceBlob) {
+            throw "Unexpected homebrew ELF: $actualBlob"
+          }
+          $header = [System.IO.File]::ReadAllBytes($elf)
+          if ($header[0] -ne 127 -or $header[1] -ne 69 -or $header[2] -ne 76 -or $header[3] -ne 70) {
+            throw 'Homebrew file is not ELF'
+          }
+          $exe = (Resolve-Path engine/play/Play.exe).Path
+          $env:QT_OPENGL = 'desktop'
+          $env:PS2STUDIO_RENDERER = 'opengl'
+          $env:PS2STUDIO_RESOLUTION = '1'
+          if (!(Test-Path (Join-Path (Split-Path $exe) 'opengl32.dll'))) {
+            throw 'Verified Mesa is required for hosted Windows smoke test'
+          }
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -ArgumentList @('--elf', $elf) -PassThru
+            Start-Sleep -Seconds 18
+            $proc.Refresh()
+            if ($proc.HasExited) { throw "Play homebrew process terminated: $($proc.ExitCode)" }
+            if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) {
+              throw 'Homebrew boot process window absent or unresponsive'
+            }
+            $cpuMs = [math]::Round($proc.TotalProcessorTime.TotalMilliseconds)
+            Write-Host "HOMEBREW_ELF_PROCESS_PASS: MIT homebrew launched with --elf; responsive process; CPU_ms=$cpuMs"
+            Write-Host 'LIMITATION: No rendered frame contents, controller input, actual FPS or game compatibility verified.'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
           }
       - name: Remove native symbols from staged distribution
         shell: pwsh
