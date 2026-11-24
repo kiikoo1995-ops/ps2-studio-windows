@@ -21,6 +21,13 @@ class PlayEngineTests(unittest.TestCase):
         self.assertEqual(build_play_command(self.exe, self.disc),
                          [str(self.exe.resolve()), "--disc", str(self.disc.resolve())])
 
+    def test_homebrew_elf_command(self):
+        homebrew = self.root / "Homebrew Cubes.ELF"
+        homebrew.touch()
+        self.assertEqual(build_play_command(self.exe, homebrew),
+                         [str(self.exe.resolve()), "--elf", str(homebrew.resolve())])
+        self.assertEqual(build_play_command(self.exe, homebrew, fullscreen=True)[-1], "--fullscreen")
+
     def test_fullscreen(self):
         self.assertEqual(build_play_command(self.exe, self.disc, fullscreen=True)[-1], "--fullscreen")
 

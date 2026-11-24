@@ -8,7 +8,7 @@ class LaunchError(Exception):
     """Could not validate or launch the bundled Play! engine."""
 
 # Conservative initial scope; other formats require integration testing.
-PLAY_EXTENSIONS = frozenset({".iso"})
+PLAY_EXTENSIONS = frozenset({".iso", ".elf"})
 
 
 def build_play_command(executable: str | Path, game: str | Path, *, fullscreen: bool = False) -> list[str]:
@@ -17,8 +17,9 @@ def build_play_command(executable: str | Path, game: str | Path, *, fullscreen: 
     if not exe.is_file() or exe.name.lower() != "play.exe":
         raise LaunchError("No se encuentra el ejecutable Play.exe.")
     if not disc.is_file() or disc.suffix.lower() not in PLAY_EXTENSIONS:
-        raise LaunchError("La integración experimental requiere una imagen ISO existente.")
-    return [str(exe.resolve()), "--disc", str(disc.resolve()), *(["--fullscreen"] if fullscreen else [])]
+        raise LaunchError("La integración experimental requiere una imagen ISO o un archivo ELF de homebrew existente.")
+    mode = "--elf" if disc.suffix.lower() == ".elf" else "--disc"
+    return [str(exe.resolve()), mode, str(disc.resolve()), *(["--fullscreen"] if fullscreen else [])]
 
 
 def start_play(executable: str | Path, game: str | Path, *, fullscreen: bool = False,
