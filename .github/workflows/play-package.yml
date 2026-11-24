@@ -35,11 +35,15 @@ jobs:
           if (!(Test-Path engine/play/Play.exe)) { throw 'Engine missing' }
           if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt platform plugin missing' }
           if (!(Test-Path engine/play/Play-LICENSE.txt)) { throw 'Engine license missing' }
-          $env:QT_OPENGL = 'software'
           $env:QT_DEBUG_PLUGINS = '1'
-          Write-Host 'Testing Qt software OpenGL on CI only'
           Get-ChildItem engine/play -Filter '*opengl*' | Select-Object Name,Length | Format-Table | Out-String | Write-Host
           $env:QT_LOGGING_RULES = 'qt.qpa.*=true'
+          $dumpDir = Join-Path $env:RUNNER_TEMP 'play-crash'
+          New-Item -ItemType Directory -Force $dumpDir | Out-Null
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\Play.exe'
+          New-Item -Path $wer -Force | Out-Null
+          New-ItemProperty -Path $wer -Name DumpFolder -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
+          New-ItemProperty -Path $wer -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
           $started = Get-Date
           $stdout = Join-Path $env:RUNNER_TEMP 'play-stdout.txt'
           $stderr = Join-Path $env:RUNNER_TEMP 'play-stderr.txt'
@@ -51,11 +55,26 @@ jobs:
               Write-Host "Exit code: $($process.ExitCode)"
               Get-Content $stdout,$stderr -ErrorAction SilentlyContinue
               Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started; Id=1000,1001,1002} -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'Play\.exe' } | Format-List TimeCreated,Id,Message | Out-String | Write-Host
+              for ($i = 0; $i -lt 10; $i++) {
+                if (Get-ChildItem $dumpDir -Filter '*.dmp' -ErrorAction SilentlyContinue) { break }
+                Start-Sleep -Seconds 2
+              }
+              $debugger = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue
+              $dump = Get-ChildItem $dumpDir -Filter '*.dmp' | Select-Object -First 1
+              if ($dump -and $debugger) {
+                & $debugger.FullName -z $dump.FullName -c '.symfix; .reload; !analyze -v; .ecxr; k; q' 2>&1 | Out-String | Write-Host
+              } else { Write-Host "Crash dump or debugger unavailable" }
               throw "Engine exited prematurely: $($process.ExitCode)"
             }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Remove temporary crash settings and dumps
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\Play.exe' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'play-crash') -Recurse -Force -ErrorAction SilentlyContinue
       - name: Build PS2 Studio
         run: |
           python -m pip install pyinstaller
