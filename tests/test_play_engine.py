@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play
+from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play, find_legacy_mesa
 
 
 class PlayEngineTests(unittest.TestCase):
@@ -56,3 +56,29 @@ class PlayEngineTests(unittest.TestCase):
         engine.parent.mkdir(parents=True)
         engine.touch()
         self.assertEqual(find_bundled_play(self.root), engine)
+
+    def test_separate_graphics_modes(self):
+        native = self.root / "engine" / "play" / "Play.exe"
+        mesa = self.root / "engine" / "play-mesa" / "Play.exe"
+        for exe in (native, mesa):
+            exe.parent.mkdir(parents=True)
+            exe.touch()
+        (mesa.parent / "opengl32.dll").touch()
+        self.assertEqual(find_bundled_play(self.root), native)
+        self.assertEqual(find_bundled_play(self.root, software=True), mesa)
+        self.assertIsNone(find_legacy_mesa(self.root))
+
+    def test_legacy_mesa_not_mislabeled_native(self):
+        native = self.root / "engine" / "play" / "Play.exe"
+        native.parent.mkdir(parents=True)
+        native.touch()
+        (native.parent / "opengl32.dll").touch()
+        self.assertIsNone(find_bundled_play(self.root))
+        self.assertEqual(find_legacy_mesa(self.root), native)
+        self.assertIsNone(find_bundled_play(self.root, software=True))
+
+    def test_incomplete_software_package(self):
+        mesa = self.root / "engine" / "play-mesa" / "Play.exe"
+        mesa.parent.mkdir(parents=True)
+        mesa.touch()
+        self.assertIsNone(find_bundled_play(self.root, software=True))

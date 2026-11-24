@@ -28,10 +28,25 @@ def start_play(executable: str | Path, game: str | Path, *, fullscreen: bool = F
         raise LaunchError(f"No se pudo iniciar Play!: {exc}") from exc
 
 
-def find_bundled_play(root: Path | None = None) -> Path | None:
+def find_bundled_play(root: Path | None = None, *, software: bool = False) -> Path | None:
     """Locate only the engine shipped alongside PS2 Studio, not PATH installs."""
     if root is None:
         root = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
                 else Path(__file__).resolve().parent.parent)
+    folder = "play-mesa" if software else "play"
+    candidate = root / "engine" / folder / "Play.exe"
+    if not candidate.is_file():
+        return None
+    local_gl = (candidate.parent / "opengl32.dll").is_file()
+    if software:
+        return candidate if local_gl else None
+    return candidate if not local_gl else None
+
+
+def find_legacy_mesa(root: Path | None = None) -> Path | None:
+    """Recognize the older single-directory software package."""
+    if root is None:
+        root = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+                else Path(__file__).resolve().parent.parent)
     candidate = root / "engine" / "play" / "Play.exe"
-    return candidate if candidate.is_file() else None
+    return candidate if candidate.is_file() and (candidate.parent / "opengl32.dll").is_file() else None

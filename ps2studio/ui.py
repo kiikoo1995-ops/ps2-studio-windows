@@ -8,7 +8,7 @@ import webbrowser
 
 from .config import AppConfig, ConfigError, ConfigStore
 from .cover_art import CoverError, validate_cover, suggested_cover
-from .play_engine import LaunchError, find_bundled_play, start_play
+from .play_engine import LaunchError, find_bundled_play, find_legacy_mesa, start_play
 from .library import Game, favorite_key, filter_games, scan_games
 
 
@@ -32,7 +32,11 @@ class PS2StudioApp:
         self.cover_photo = None
         self.details_title = tk.StringVar(value="Selecciona un juego")
         self.details_text = tk.StringVar(value="No hay juego seleccionado.")
-        self.engine_path = find_bundled_play()
+        self.native_engine = find_bundled_play()
+        self.software_engine = find_bundled_play(software=True) or find_legacy_mesa()
+        self.software_var = tk.BooleanVar(value=self.native_engine is None and self.software_engine is not None)
+        self.engine_path = self.software_engine if self.software_var.get() else self.native_engine
+        self.play_process = None
         self._configure_window()
         self._build_widgets()
         self.refresh_games()
@@ -72,6 +76,16 @@ class PS2StudioApp:
         self.paths_label = ttk.Label(paths_frame, text="", wraplength=860)
         self.paths_label.pack(anchor="w")
         self._refresh_path_labels()
+        graphics = ttk.Frame(outer)
+        graphics.pack(fill="x", pady=(0, 5))
+        ttk.Label(graphics, text="Gráficos:").pack(side="left")
+        ttk.Radiobutton(graphics, text="GPU nativa (OpenGL)", variable=self.software_var,
+                        value=False, command=self._change_graphics,
+                        state="normal" if self.native_engine else "disabled").pack(side="left", padx=8)
+        ttk.Radiobutton(graphics, text="Mesa (alternativa de software)", variable=self.software_var,
+                        value=True, command=self._change_graphics,
+                        state="normal" if self.software_engine else "disabled").pack(side="left")
+        ttk.Label(graphics, text="Para rendimiento: resolución 1x en Play!").pack(side="left", padx=10)
 
         options = ttk.Frame(outer)
         options.pack(fill="x", pady=(3, 9))
@@ -126,6 +140,11 @@ class PS2StudioApp:
         ttk.Label(footer, textvariable=self.status_var).pack(side="left")
         ttk.Button(footer, text="Web oficial Play!", command=lambda: webbrowser.open("https://purei.org/")).pack(side="right", padx=(8, 0))
         ttk.Button(footer, text="Iniciar juego", style="Play.TButton", command=self.play_selected).pack(side="right")
+
+    def _change_graphics(self) -> None:
+        self.engine_path = self.software_engine if self.software_var.get() else self.native_engine
+        self._refresh_path_labels()
+        self.status_var.set("Modo gráfico para el próximo inicio del juego.")
 
     def _refresh_path_labels(self) -> None:
         self.exe_label.configure(text=f"Emulador: {self.engine_path or '(motor integrado no encontrado)'}")
@@ -291,11 +310,31 @@ class PS2StudioApp:
         try:
             if self.engine_path is None:
                 raise LaunchError("Falta el motor Play! integrado en esta distribución experimental.")
-            start_play(self.engine_path, game.path, fullscreen=self.fullscreen_var.get())
+            if self.play_process is not None and self.play_process.poll() is None:
+                messagebox.showinfo("Play!", "Cierra el juego actual antes de iniciar otro.")
+                return
+            self.play_process = start_play(self.engine_path, game.path, fullscreen=self.fullscreen_var.get())
         except LaunchError as exc:
             messagebox.showerror("No se pudo iniciar", str(exc))
             return
-        self.status_var.set(f"Iniciado: {game.title}")
+        self.status_var.set(f"Proceso iniciado: {game.title} · imagen no verificada")
+        process = self.play_process
+        software = self.software_var.get()
+        self.root.after(12000, lambda: self._check_startup(process, software))
+
+    def _check_startup(self, process, software: bool) -> None:
+        if process is not self.play_process:
+            return
+        code = process.poll()
+        if code is not None and code != 0:
+            self.status_var.set(f"Play! terminó durante el arranque (código {code}).")
+            if not software and self.software_engine is not None:
+                messagebox.showwarning("Error de arranque",
+                                       "Play! terminó con la GPU nativa. Prueba el modo Mesa. "
+                                       "No se ha comprobado la compatibilidad del juego.")
+            else:
+                messagebox.showwarning("Error de arranque", f"Play! terminó con código {code}.")
+
 
 
 def main() -> None:
