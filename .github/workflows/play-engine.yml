@@ -39,7 +39,7 @@ jobs:
         run: |
           cmake -S upstream-play -B play-build -G "Visual Studio 17 2022" -A x64 -DUSE_QT=ON -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build play-build --config Release --target Play --parallel 2
+          cmake --build play-build --config RelWithDebInfo --target Play --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
       - name: Stage internal test artifact
         shell: pwsh
@@ -51,6 +51,50 @@ jobs:
           Copy-Item upstream-play/License.txt engine/play/Play-LICENSE.txt
           if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt Windows platform plugin missing' }
           Get-FileHash engine/play/Play.exe -Algorithm SHA256
+      - name: Verify startup and diagnose with matching native symbols
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $exe = (Resolve-Path engine/play/Play.exe).Path
+          $pdb = Join-Path (Split-Path $exe) 'Play.pdb'
+          if (!(Test-Path $pdb)) { throw 'Matching Play.pdb missing' }
+          $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $proc.Refresh()
+            if ($proc.HasExited) {
+              Write-Host "Play startup failed: $($proc.ExitCode)"
+              $cdb = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Debuggers\x64\cdb.exe'
+              if (!(Test-Path $cdb)) { throw 'CDB unavailable' }
+              Push-Location (Split-Path $exe)
+              try {
+                $env:_NT_SYMBOL_PATH = "$(Split-Path $exe);srv*https://msdl.microsoft.com/download/symbols"
+                & $cdb -lines -hd -c 'sxe -c ".exr -1; .ecxr; r; kP; lmv m Play; !analyze -v; q" av; g; q' $exe 2>&1 | ForEach-Object { Write-Host $_ }
+              } finally { Pop-Location }
+              throw 'Play startup verification failed'
+            }
+            Write-Host 'Play process remained alive for 8 seconds'
+          } finally {
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+      - name: Remove native symbols from staged distribution
+        shell: pwsh
+        run: Get-ChildItem engine/play -Recurse -File -Filter '*.pdb' | Remove-Item -Force
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify application and assemble autonomous package
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed' }
+          python -m pip install pyinstaller
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller install failed' }
+          python -m PyInstaller --noconfirm --onefile --windowed --name PS2Studio app.py
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          Copy-Item engine dist/engine -Recurse
+          Compress-Archive -Path dist/PS2Studio.exe,dist/engine -DestinationPath PS2Studio-Play-internal.zip
+          Get-FileHash PS2Studio-Play-internal.zip -Algorithm SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: Play-engine-internal-test
