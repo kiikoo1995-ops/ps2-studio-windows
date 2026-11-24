@@ -97,7 +97,7 @@ class PlayEngineTests(unittest.TestCase):
 
     def test_auto_native_and_software_profiles(self):
         (self.root / "ps2studio-profile-v1.txt").touch()
-        self.assertEqual(graphics_environment(self.exe, "auto")["PS2STUDIO_RESOLUTION"], "2")
+        self.assertEqual(graphics_environment(self.exe, "auto")["PS2STUDIO_RESOLUTION"], "1")
         (self.root / "opengl32.dll").touch()
         self.assertEqual(graphics_environment(self.exe, "auto")["PS2STUDIO_RESOLUTION"], "1")
 

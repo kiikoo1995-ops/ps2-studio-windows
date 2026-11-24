@@ -44,7 +44,7 @@ def graphics_environment(executable: Path, profile: str | None, vulkan: bool = F
     if not (executable.parent / "ps2studio-profile-v1.txt").is_file():
         raise LaunchError("Este motor no admite perfiles integrados; utiliza sus ajustes de vídeo.")
     software = (executable.parent / "opengl32.dll").is_file()
-    scales = {"auto": 1 if software or vulkan else 2, "speed": 1, "balanced": 2, "quality": 4, "ultra": 8}
+    scales = {"auto": 1, "speed": 1, "balanced": 2, "quality": 4, "ultra": 8}
     if profile not in scales:
         raise LaunchError("Perfil gráfico desconocido.")
     if vulkan and (software or scales[profile] != 1):

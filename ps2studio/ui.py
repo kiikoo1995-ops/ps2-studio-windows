@@ -120,7 +120,7 @@ class PS2StudioApp:
         self.profile_box.pack(side="left", padx=8)
         self.vulkan_box = ttk.Checkbutton(profiles, text="Vulkan experimental (1x)", variable=self.vulkan_var)
         self.vulkan_box.pack(side="left", padx=8)
-        ttk.Label(profiles, text="Auto: GPU 2x / Mesa 1x · speed 1x · balanced 2x · quality 4x · ultra 8x",
+        ttk.Label(profiles, text="Auto: GPU 1x / Mesa 1x · speed 1x · balanced 2x · quality 4x · ultra 8x",
                   style="Sub.TLabel").pack(side="left")
         self._refresh_profiles()
 
