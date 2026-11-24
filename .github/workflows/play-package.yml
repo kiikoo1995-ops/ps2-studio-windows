@@ -92,6 +92,33 @@ jobs:
             $env:_NT_SYMBOL_PATH = 'srv*https://msdl.microsoft.com/download/symbols'
             & $cdb -hd -c 'sxe -c ".exr -1; .ecxr; r; kP; lm; !analyze -v; q" av; g; q' $exe 2>&1 | ForEach-Object { Write-Host $_ }
           } finally { Pop-Location }
+      - name: Test unified app-local Mesa desktop OpenGL after startup failure
+        if: failure()
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path engine/play).Path
+          $exe = Join-Path $dir 'Play.exe'
+          $mesa = Join-Path $dir 'opengl32sw.dll'
+          $local = Join-Path $dir 'opengl32.dll'
+          if (!(Test-Path $mesa) -or (Test-Path $local)) { throw 'Unexpected Mesa library layout' }
+          Copy-Item $mesa $local
+          $env:QT_OPENGL = 'desktop'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru
+            Start-Sleep -Seconds 12
+            $proc.Refresh()
+            if ($proc.HasExited) { throw "Unified Mesa startup failed: $($proc.ExitCode)" }
+            $modules = @($proc.Modules | Where-Object { $_.ModuleName -match 'opengl|libEGL|libGLES' })
+            $modules | Select-Object ModuleName,FileName | Format-Table | Out-String | Write-Host
+            if (!($modules | Where-Object { $_.FileName -eq $local })) { throw 'Local Mesa was not actually loaded' }
+            if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) { throw 'Play window absent or unresponsive' }
+            Write-Host 'APP_LOCAL_MESA_STARTUP_PASS: responsive Play window and local OpenGL implementation verified'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Remove-Item $local -Force -ErrorAction SilentlyContinue
+          }
       - name: Build PS2 Studio
         run: |
           python -m pip install pyinstaller
