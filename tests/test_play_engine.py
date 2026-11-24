@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ps2studio.play_engine import build_play_command, start_play, LaunchError
+from ps2studio.play_engine import build_play_command, start_play, LaunchError, find_bundled_play
 
 
 class PlayEngineTests(unittest.TestCase):
@@ -47,3 +47,12 @@ class PlayEngineTests(unittest.TestCase):
     def test_process_error(self, popen):
         with self.assertRaises(LaunchError):
             start_play(self.exe, self.disc)
+
+    def test_bundled_engine_missing(self):
+        self.assertIsNone(find_bundled_play(self.root))
+
+    def test_bundled_engine_found(self):
+        engine = self.root / "engine" / "play" / "Play.exe"
+        engine.parent.mkdir(parents=True)
+        engine.touch()
+        self.assertEqual(find_bundled_play(self.root), engine)
