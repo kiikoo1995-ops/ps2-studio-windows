@@ -35,11 +35,21 @@ jobs:
           if (!(Test-Path engine/play/Play.exe)) { throw 'Engine missing' }
           if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt platform plugin missing' }
           if (!(Test-Path engine/play/Play-LICENSE.txt)) { throw 'Engine license missing' }
-          $process = Start-Process -FilePath (Resolve-Path engine/play/Play.exe).Path -WorkingDirectory (Resolve-Path engine/play).Path -PassThru
+          $env:QT_DEBUG_PLUGINS = '1'
+          $env:QT_LOGGING_RULES = 'qt.qpa.*=true'
+          $started = Get-Date
+          $stdout = Join-Path $env:RUNNER_TEMP 'play-stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'play-stderr.txt'
+          $process = Start-Process -FilePath (Resolve-Path engine/play/Play.exe).Path -WorkingDirectory (Resolve-Path engine/play).Path -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
           try {
             Start-Sleep -Seconds 8
             $process.Refresh()
-            if ($process.HasExited) { throw "Engine exited prematurely: $($process.ExitCode)" }
+            if ($process.HasExited) {
+              Write-Host "Exit code: $($process.ExitCode)"
+              Get-Content $stdout,$stderr -ErrorAction SilentlyContinue
+              Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started; Id=1000,1001,1002} -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'Play\.exe' } | Format-List TimeCreated,Id,Message | Out-String | Write-Host
+              throw "Engine exited prematurely: $($process.ExitCode)"
+            }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
