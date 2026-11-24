@@ -27,7 +27,8 @@ $env:PS2STUDIO_RESOLUTION = '1'
 $marker = Join-Path $folder 'elf-boot-confirmed.txt'
 $statsFile = Join-Path $folder 'guest-stats.tsv'
 $env:PS2STUDIO_CI_ELF_MARKER = $marker
-$env:PS2STUDIO_CI_CAPTURE_FRAME = '1'
+$framePath = Join-Path $folder 'guest-frame.bmp'
+$env:PS2STUDIO_CI_FRAME_PATH = $framePath
 $env:PS2STUDIO_CI_STATS_FILE = $statsFile
 $portable = Join-Path $dir 'portable.txt'
 $portableData = Join-Path $dir 'Play Data Files'
@@ -58,13 +59,12 @@ try {
   $avgFps = [math]::Round(($positive | Measure-Object -Average).Average, 1)
   $minFps = ($positive | Measure-Object -Minimum).Minimum
   $maxFps = ($positive | Measure-Object -Maximum).Maximum
-  Write-Host "GUEST_FPS_MEASURED: average=$avgFps min=$minFps max=$maxFps (hosted Windows CPU/Mesa)"
-  $screenshots = Join-Path $portableData 'screenshots'
-  $frames = @(Get-ChildItem -Path $screenshots -Filter '*.bmp' -File -ErrorAction SilentlyContinue)
-  if ($frames.Count -eq 0) { throw 'GUEST_FRAME_MISSING: no completed GS screenshot' }
-  $frame = $frames | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  $allAvg = [math]::Round(($samples | Measure-Object -Average).Average, 1)
+  $zeroSamples = @($samples | Where-Object { $_ -eq 0 }).Count
+  Write-Host "GUEST_FPS_MEASURED: positive_average=$avgFps positive_min=$minFps max=$maxFps all_average=$allAvg zero_samples=$zeroSamples total_samples=$($samples.Count) (hosted Windows CPU/Mesa)"
+  if (!(Test-Path $framePath)) { throw 'GUEST_FRAME_MISSING: no pre-swap OpenGL framebuffer capture' }
   Add-Type -AssemblyName System.Drawing
-  $bitmap = [System.Drawing.Bitmap]::new($frame.FullName)
+  $bitmap = [System.Drawing.Bitmap]::new($framePath)
   try {
     if ($bitmap.Width -lt 128 -or $bitmap.Height -lt 128) {
       throw "GUEST_FRAME_INVALID_SIZE: $($bitmap.Width)x$($bitmap.Height)"
@@ -85,7 +85,6 @@ try {
     if ($lit -lt [math]::Max(8, [int]($sampleCount * 0.004)) -or $colours.Count -lt 4) {
       throw 'GUEST_FRAME_BLACK_OR_STATIC'
     }
-    Copy-Item -LiteralPath $frame.FullName -Destination (Join-Path $folder 'guest-frame.bmp') -Force
     Write-Host 'GUEST_FRAME_NONBLACK_PASS: genuine guest framebuffer from Play'
   } finally {
     $bitmap.Dispose()

@@ -55,15 +55,7 @@ boot_report = r'''
             studioBootReport.flush();
         }
     }
-    // Ask the real GS handler to save a guest framebuffer after the ELF boots.
-    // It uses Play!'s existing ScreenShotUtils and fires on a real GS flip.
-    if(!qgetenv("PS2STUDIO_CI_CAPTURE_FRAME").isEmpty())
-    {
-        QTimer::singleShot(6000, this, [this]() {
-            m_screenShotCompleteConnection = CScreenShotUtils::TriggerGetScreenshot(
-                m_virtualMachine, [](int, const char*) -> void {});
-        });
-    }
+
 '''
 window_text = window_text.replace(boot_anchor, boot_anchor + boot_report)
 window_text = window_text.replace("#include <QFileDialog>", "#include <QFile>\n#include <QFileDialog>", 1)
@@ -86,3 +78,53 @@ stats_hook = r'''
 window_text = window_text.replace(stats_anchor, stats_hook + stats_anchor)
 mainwindow.write_text(window_text, encoding="utf-8")
 
+
+# The pinned OpenGL GetScreenshot() returns an empty bitmap (#if 0).
+# Capture the actual composed guest output immediately before PresentBackbuffer.
+# Enabled only by an explicit CI environment path, never during normal gameplay.
+gl_source = Path(sys.argv[1]) / "Source/gs/GSH_OpenGL/GSH_OpenGL.cpp"
+gl_text = gl_source.read_text(encoding="utf-8")
+gl_include = '#include "GSH_OpenGL.h"'
+if gl_text.count(gl_include) != 1:
+    raise SystemExit("Unexpected OpenGL include anchor")
+gl_text = gl_text.replace(gl_include, gl_include + '\n#include "bitmap/BMP.h"\n#include "StdStream.h"\n#include <cstdlib>', 1)
+flip_anchor = "\tPresentBackbuffer();\n\tCGSHandler::FlipImpl(dispInfo);"
+if gl_text.count(flip_anchor) != 1:
+    raise SystemExit("Unexpected OpenGL flip anchor")
+capture = r'''
+#ifndef GLES_COMPATIBILITY
+    // Test the real OpenGL presentation framebuffer before swapping buffers.
+    static const char* studioFramePath = std::getenv("PS2STUDIO_CI_FRAME_PATH");
+    static unsigned int studioVisibleFlips = 0;
+    static bool studioCaptured = false;
+    if(studioFramePath && *studioFramePath && framebuffer && !studioCaptured)
+    {
+        if(++studioVisibleFlips >= 120)
+        {
+            const auto width = m_presentationParams.windowWidth;
+            const auto height = m_presentationParams.windowHeight;
+            if(width >= 128 && height >= 128 && width <= 4096 && height <= 4096)
+            {
+                try
+                {
+                    glBindFramebuffer(GL_FRAMEBUFFER, m_presentFramebuffer);
+                    auto bitmap = Framework::CBitmap(width, height, 32);
+                    glReadPixels(0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bitmap.GetPixels());
+                    if(glGetError() == GL_NO_ERROR)
+                    {
+                        Framework::CStdStream stream(studioFramePath, "wb");
+                        Framework::CBMP::WriteBitmap(bitmap, stream);
+                        studioCaptured = true;
+                    }
+                }
+                catch(const std::exception&)
+                {
+                    // CI will fail if a valid screenshot is not produced.
+                }
+            }
+        }
+    }
+#endif
+'''
+gl_text = gl_text.replace(flip_anchor, capture + flip_anchor, 1)
+gl_source.write_text(gl_text, encoding="utf-8")
