@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/play-engine.yml'
       - 'tools/play-engine.lock.json'
+concurrency:
+  group: play-engine-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
