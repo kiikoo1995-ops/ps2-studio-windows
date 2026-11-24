@@ -139,6 +139,8 @@ jobs:
           $marker = Join-Path (Resolve-Path homebrew-test).Path 'elf-boot-confirmed.txt'
           $env:PS2STUDIO_CI_ELF_MARKER = $marker
           $env:PS2STUDIO_CI_CAPTURE_FRAME = '1'
+          $statsFile = Join-Path (Resolve-Path homebrew-test).Path 'guest-stats.tsv'
+          $env:PS2STUDIO_CI_STATS_FILE = $statsFile
           $portable = Join-Path (Split-Path $exe) 'portable.txt'
           $portableData = Join-Path (Split-Path $exe) 'Play Data Files'
           New-Item -ItemType File -Path $portable -Force | Out-Null
@@ -158,6 +160,111 @@ jobs:
             }
             $cpuMs = [math]::Round($proc.TotalProcessorTime.TotalMilliseconds)
             Write-Host "HOMEBREW_ELF_BOOT_PASS: MIT ELF passed through actual Play BootElf and VM resumed; CPU_ms=$cpuMs"
+            if (!(Test-Path $statsFile)) { throw 'GUEST_FPS_MISSING: no emulated GS frame counters' }
+            $samples = @()
+            foreach ($line in @(Get-Content $statsFile)) {
+              if ($line -match '^([0-9]+)\t([0-9]+)
+            $screenshots = Join-Path $portableData 'screenshots'
+            $frames = @(Get-ChildItem -Path $screenshots -Filter '*.bmp' -File -ErrorAction SilentlyContinue)
+            if ($frames.Count -eq 0) {
+              throw 'GUEST_FRAME_MISSING: Play! did not complete a GS flip/capture for the homebrew ELF'
+            }
+            $frame = $frames | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Add-Type -AssemblyName System.Drawing
+            $bitmap = [System.Drawing.Bitmap]::new($frame.FullName)
+            try {
+              if ($bitmap.Width -lt 128 -or $bitmap.Height -lt 128) {
+                throw "GUEST_FRAME_INVALID_DIMENSIONS: $($bitmap.Width)x$($bitmap.Height)"
+              }
+              $count = 0
+              $lit = 0
+              $colours = New-Object 'System.Collections.Generic.HashSet[int]'
+              for ($y = 0; $y -lt $bitmap.Height; $y += 12) {
+                for ($x = 0; $x -lt $bitmap.Width; $x += 12) {
+                  $pixel = $bitmap.GetPixel($x, $y)
+                  $count++
+                  if ([int]$pixel.R + [int]$pixel.G + [int]$pixel.B -gt 75) { $lit++ }
+                  [void]$colours.Add($pixel.ToArgb())
+                }
+              }
+              $percent = [math]::Round(100 * $lit / $count, 2)
+              Write-Host "GUEST_FRAME_METRICS: size=$($bitmap.Width)x$($bitmap.Height), samples=$count, lit=$lit ($percent%), distinct_colours=$($colours.Count)"
+              if ($lit -lt [math]::Max(8, [int]($count * 0.004)) -or $colours.Count -lt 4) {
+                throw "GUEST_FRAME_BLACK_OR_STATIC: too few visible pixels/colours"
+              }
+              $destination = Join-Path (Resolve-Path homebrew-test).Path 'guest-frame.bmp'
+              Copy-Item -LiteralPath $frame.FullName -Destination $destination -Force
+              Write-Host 'GUEST_FRAME_NONBLACK_PASS: real Play GS framebuffer saved for inspection'
+            } finally {
+              $bitmap.Dispose()
+            }
+            Write-Host 'LIMITATION: a non-black homebrew frame does not establish FPS, sound, controls, or commercial-game compatibility.'
+          } finally {
+                $graphics.Dispose()
+                $image.Dispose()
+              }
+            } catch {
+              Write-Warning "Display capture unsupported by hosted runner: $_"
+            }
+            Write-Host 'LIMITATION: Guest frame content, input controls, GPU performance and commercial-game FPS still unverified.'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Remove-Item -LiteralPath $portable -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $portableData -Recurse -Force -ErrorAction SilentlyContinue
+          }
+      - name: Upload homebrew diagnostics (no game or ELF included)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Play-homebrew-smoke-diagnostics
+          path: |
+            homebrew-test/elf-boot-confirmed.txt
+            homebrew-test/guest-frame.bmp
+            homebrew-test/guest-stats.tsv
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Remove native symbols from staged distribution
+        shell: pwsh
+        run: Get-ChildItem engine/play -Recurse -File -Filter '*.pdb' | Remove-Item -Force
+      - name: Separate native graphics and Mesa fallback
+        shell: pwsh
+        run: |
+          Copy-Item engine/play engine/play-mesa -Recurse
+          Remove-Item engine/play/opengl32.dll -ErrorAction Stop
+          if (!(Test-Path engine/play-mesa/opengl32.dll) -or (Test-Path engine/play/opengl32.dll)) { throw 'Invalid graphics layout' }
+      - name: Verify application and assemble autonomous package
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed' }
+          python -m pip install pyinstaller
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller install failed' }
+          python -m PyInstaller --noconfirm --onefile --windowed --name PS2Studio app.py
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          Copy-Item engine dist/engine -Recurse
+          Compress-Archive -Path dist/PS2Studio.exe,dist/engine -DestinationPath PS2Studio-Play-internal.zip
+          Get-FileHash PS2Studio-Play-internal.zip -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Play-engine-internal-test
+          path: |
+            engine/play/
+            engine/play-mesa/
+            PS2Studio-Play-internal.zip
+          if-no-files-found: error
+          retention-days: 3
+) {
+                $samples += [int]$Matches[1]
+              }
+            }
+            $positive = @($samples | Where-Object { $_ -gt 0 })
+            if ($positive.Count -lt 3) {
+              throw "GUEST_FPS_ZERO_OR_STALLED: positive_count=$($positive.Count), samples=$($samples.Count)"
+            }
+            $avgFps = [math]::Round(($positive | Measure-Object -Average).Average, 1)
+            $maxFps = ($positive | Measure-Object -Maximum).Maximum
+            $minFps = ($positive | Measure-Object -Minimum).Minimum
+            Write-Host "GUEST_FRAMES_PASS: positive_samples=$($positive.Count), average_fps=$avgFps, min_fps=$minFps, max_fps=$maxFps (hosted Windows CPU/Mesa, not native GPU)"
             # This is the guest GS framebuffer, not a Windows desktop screenshot.
             $screenshots = Join-Path $portableData 'screenshots'
             $frames = @(Get-ChildItem -Path $screenshots -Filter '*.bmp' -File -ErrorAction SilentlyContinue)

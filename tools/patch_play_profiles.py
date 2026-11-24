@@ -67,5 +67,22 @@ boot_report = r'''
 '''
 window_text = window_text.replace(boot_anchor, boot_anchor + boot_report)
 window_text = window_text.replace("#include <QFileDialog>", "#include <QFile>\n#include <QFileDialog>", 1)
+# The Qt status bar already reads real guest GS flips once per second via
+# CStatsManager::GetFrames(). Export these values for a CI-only timing report.
+stats_anchor = "\tCStatsManager::GetInstance().ClearStats();\n"
+if window_text.count(stats_anchor) != 1:
+    raise SystemExit("Unexpected upstream frame stats anchor")
+stats_hook = r'''
+    auto studioStatsPath = qgetenv("PS2STUDIO_CI_STATS_FILE");
+    if(!studioStatsPath.isEmpty())
+    {
+        QFile studioStats(QString::fromLocal8Bit(studioStatsPath));
+        if(studioStats.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        {
+            studioStats.write(QString("%1\t%2\n").arg(frames).arg(dcpf).toUtf8());
+        }
+    }
+'''
+window_text = window_text.replace(stats_anchor, stats_hook + stats_anchor)
 mainwindow.write_text(window_text, encoding="utf-8")
 
