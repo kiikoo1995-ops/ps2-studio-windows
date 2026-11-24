@@ -1,0 +1,64 @@
+name: Experimental standalone PS2 Studio
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/play-package.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: standalone-play-package
+  cancel-in-progress: true
+jobs:
+  package:
+    if: github.repository == 'kiikoo1995-ops/ps2-studio-windows'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Retrieve existing internal motor artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Play-engine-internal-test
+          run-id: '45296267226'
+          github-token: ${{ github.token }}
+          path: engine/play
+      - name: Verify and smoke-test motor
+        shell: pwsh
+        run: |
+          if (!(Test-Path engine/play/Play.exe)) { throw 'Engine missing' }
+          if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt platform plugin missing' }
+          if (!(Test-Path engine/play/Play-LICENSE.txt)) { throw 'Engine license missing' }
+          $process = Start-Process -FilePath (Resolve-Path engine/play/Play.exe).Path -WorkingDirectory (Resolve-Path engine/play).Path -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $process.Refresh()
+            if ($process.HasExited) { throw "Engine exited prematurely: $($process.ExitCode)" }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Build PS2 Studio
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller --noconfirm --onefile --windowed --name PS2Studio app.py
+      - name: Assemble internal test package
+        shell: pwsh
+        run: |
+          Copy-Item engine dist/engine -Recurse
+          Compress-Archive -Path dist/PS2Studio.exe,dist/engine -DestinationPath PS2Studio-Play-internal.zip
+          $hash = (Get-FileHash PS2Studio-Play-internal.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  PS2Studio-Play-internal.zip" | Set-Content PS2Studio-Play-internal.zip.sha256 -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PS2Studio-Play-internal
+          path: |
+            PS2Studio-Play-internal.zip
+            PS2Studio-Play-internal.zip.sha256
+          retention-days: 3
+          if-no-files-found: error
