@@ -1,0 +1,228 @@
+name: Experimental Play! engine build
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/play-engine.yml'
+      - 'tools/patch_play_profiles.py'
+      - 'tools/verify_play_homebrew.ps1'
+      - 'tools/play-engine.lock.json'
+      - 'ps2studio/**'
+      - 'tests/**'
+      - '.github/workflows/play-package.yml'
+concurrency:
+  group: play-engine-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build-play:
+    if: github.repository == 'kiikoo1995-ops/ps2-studio-windows'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned source and fetch submodules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lock = Get-Content tools/play-engine.lock.json -Raw | ConvertFrom-Json
+          if ($lock.repository -ne 'https://github.com/jpd002/Play-' -or $lock.commit -notmatch '^[a-f0-9]{40}$') { throw 'Invalid source lock' }
+          git clone --no-checkout $lock.repository upstream-play
+          if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+          git -C upstream-play checkout --detach $lock.commit
+          if ($LASTEXITCODE -ne 0) { throw 'Checkout failed' }
+          git -C upstream-play submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Submodule fetch failed' }
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply verified-source graphics profile hook
+        run: python tools/patch_play_profiles.py upstream-play
+      - name: Prepare free Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@c25f41106918cde0bf347e6f201277392b3a9e9d
+        with:
+          vulkan-query-version: '1.3.296.0'
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: false
+      - name: Configure and compile
+        shell: pwsh
+        run: |
+          cmake -S upstream-play -B play-build -G "Visual Studio 17 2022" -A x64 -DUSE_QT=ON -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" 2>&1 | Tee-Object -FilePath cmake-config.log
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+          if (!(Select-String -Path cmake-config.log -SimpleMatch 'Building with Vulkan support.')) { throw 'Vulkan backend was not enabled' }
+          Write-Host 'VULKAN_CONFIGURED'
+          cmake --build play-build --config RelWithDebInfo --target Play --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Stage internal test artifact
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem play-build -Recurse -File -Filter Play.exe)
+          if ($exe.Count -ne 1) { throw 'Expected exactly one Play.exe' }
+          New-Item -ItemType Directory -Force engine/play | Out-Null
+          Copy-Item (Join-Path $exe[0].DirectoryName '*') engine/play -Recurse -Force
+          Copy-Item upstream-play/License.txt engine/play/Play-LICENSE.txt
+          if (!(Test-Path engine/play/platforms/qwindows.dll)) { throw 'Qt Windows platform plugin missing' }
+          Set-Content engine/play/ps2studio-profile-v1.txt 'Graphics profiles v1; Vulkan build enabled'
+          Get-FileHash engine/play/Play.exe -Algorithm SHA256
+      - name: Verify startup and diagnose with matching native symbols
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $exe = (Resolve-Path engine/play/Play.exe).Path
+          $pdb = Join-Path (Split-Path $exe) 'Play.pdb'
+          if (!(Test-Path $pdb)) { throw 'Matching Play.pdb missing' }
+          $dir = Split-Path $exe
+          $mesa = Join-Path $dir 'opengl32sw.dll'
+          $local = Join-Path $dir 'opengl32.dll'
+          if (!(Test-Path $mesa) -or (Test-Path $local)) { throw 'Unexpected Mesa library layout' }
+          Copy-Item $mesa $local
+          $env:QT_OPENGL = 'desktop'
+          $env:PS2STUDIO_RENDERER = 'opengl'
+          $env:PS2STUDIO_RESOLUTION = '4'
+          'QT_OPENGL=desktop' | Out-File -FilePath $env:GITHUB_ENV -Append
+          $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
+          try {
+            Start-Sleep -Seconds 12
+            $proc.Refresh()
+            if ($proc.HasExited) {
+              Write-Host "Play startup failed: $($proc.ExitCode)"
+              $cdb = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Debuggers\x64\cdb.exe'
+              if (!(Test-Path $cdb)) { throw 'CDB unavailable' }
+              Push-Location (Split-Path $exe)
+              try {
+                $env:_NT_SYMBOL_PATH = "$(Split-Path $exe);srv*https://msdl.microsoft.com/download/symbols"
+                & $cdb -lines -hd -c 'sxe -c ".exr -1; .ecxr; r; kP; lmv m Play; !analyze -v; q" av; g; q' $exe 2>&1 | ForEach-Object { Write-Host $_ }
+              } finally { Pop-Location }
+              throw 'Play startup verification failed'
+            }
+            $modules = @($proc.Modules | Where-Object { $_.ModuleName -match 'opengl|libEGL|libGLES' })
+            $modules | Select-Object ModuleName,FileName | Format-Table | Out-String | Write-Host
+            if (!($modules | Where-Object { $_.FileName -eq $local })) { throw 'Local Mesa was not actually loaded' }
+            if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) { throw 'Play window absent or unresponsive' }
+            Write-Host 'APP_LOCAL_MESA_STARTUP_PASS (4x requested; no game rendering or FPS verified)'
+          } finally {
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+      - name: Boot MIT homebrew and verify real guest frame
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          try { ./tools/verify_play_homebrew.ps1 -Demo cubes_demo }
+          catch {
+            if ($_.Exception.Message -notmatch 'GUEST_FRAME_BLACK_OR_STATIC|GUEST_FRAME_MISSING') { throw }
+            Write-Warning "Cubes demo failed visual validation: $_. Trying independent MIT console demo."
+            ./tools/verify_play_homebrew.ps1 -Demo console_demo
+          }
+      - name: Upload homebrew diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Play-homebrew-smoke-diagnostics
+          path: |
+            homebrew-test/*/elf-boot-confirmed.txt
+            homebrew-test/*/guest-frame.bmp
+            homebrew-test/*/guest-frame.bmp.log
+            homebrew-test/*/guest-frame.bmp.flips.tsv
+            homebrew-test/*/guest-stats.tsv
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Remove native symbols from staged distribution
+        shell: pwsh
+        run: Get-ChildItem engine/play -Recurse -File -Filter '*.pdb' | Remove-Item -Force
+      - name: Separate native graphics and Mesa fallback
+        shell: pwsh
+        run: |
+          Copy-Item engine/play engine/play-mesa -Recurse
+          Remove-Item engine/play/opengl32.dll -ErrorAction Stop
+          if (!(Test-Path engine/play-mesa/opengl32.dll) -or (Test-Path engine/play/opengl32.dll)) { throw 'Invalid graphics layout' }
+      - name: Verify application and assemble autonomous package
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed' }
+          python -m pip install pyinstaller
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller install failed' }
+          python -m PyInstaller --noconfirm --onefile --windowed --name PS2Studio app.py
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          Copy-Item engine dist/engine -Recurse
+          Compress-Archive -Path dist/PS2Studio.exe,dist/engine -DestinationPath PS2Studio-Play-internal.zip
+          Get-FileHash PS2Studio-Play-internal.zip -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Play-engine-internal-test
+          path: |
+            engine/play/
+            engine/play-mesa/
+            PS2Studio-Play-internal.zip
+          if-no-files-found: error
+          retention-days: 3
+
+
+  linux-render-control:
+    if: github.repository == 'kiikoo1995-ops/ps2-studio-windows'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install modern software graphics and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qtbase5-dev libqt5x11extras5-dev libgl1-mesa-dev libgl1-mesa-dri mesa-utils libopenal-dev libevdev-dev libvulkan-dev mesa-vulkan-drivers libglew-dev libcurl4-openssl-dev libssl-dev zlib1g-dev libbz2-dev liblzma-dev libzstd-dev libsqlite3-dev libpulse-dev libasound2-dev xvfb xauth ninja-build
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a glxinfo -B
+      - name: Fetch pinned upstream and instrument
+        run: |
+          git clone --no-checkout https://github.com/jpd002/Play- upstream-play
+          git -C upstream-play checkout --detach 0bd77c19fbbdb83e98988fc5b7944dbeee9eee3e
+          git -C upstream-play submodule update --init --recursive
+          python3 tools/patch_play_profiles.py upstream-play
+          cmake -S upstream-play -B linux-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DUSE_QT=ON
+          cmake --build linux-build --target Play --parallel 2
+      - name: Run same guest on modern llvmpipe
+        run: |
+          mkdir -p linux-diagnostics
+          curl -fL https://raw.githubusercontent.com/glampert/ps2-homebrew/602441a6877a3136709d6320664340d52e3027a1/source/demos/bin/cubes_demo.elf -o linux-diagnostics/cubes.elf
+          test "$(git hash-object linux-diagnostics/cubes.elf)" = 27373da3d4fdf547d12910b6eb66db56598d0308
+          exe="$(find linux-build -type f -name Play -executable -print -quit)"
+          test -n "$exe"
+          export LIBGL_ALWAYS_SOFTWARE=1 QT_OPENGL=desktop PS2STUDIO_RENDERER=opengl PS2STUDIO_RESOLUTION=1
+          export PS2STUDIO_CI_ELF_MARKER="$PWD/linux-diagnostics/boot.txt"
+          export PS2STUDIO_CI_FRAME_PATH="$PWD/linux-diagnostics/frame.bmp"
+          export PS2STUDIO_CI_STATS_FILE="$PWD/linux-diagnostics/stats.tsv"
+          export HOME="$RUNNER_TEMP/play-control-home"
+          mkdir -p "$HOME"
+          # Hosted runners have no physical sound card. Use ALSA's null PCM.
+          printf 'pcm.!default { type null }\nctl.!default { type hw card 0 }\n' > "$HOME/.asoundrc"
+          export ALSOFT_DRIVERS=null
+          set +e
+          timeout 45s xvfb-run -a "$exe" --elf "$PWD/linux-diagnostics/cubes.elf" >linux-diagnostics/process.log 2>&1
+          status=$?
+          set -e
+          cat linux-diagnostics/process.log
+          echo "Guest process exit: $status"
+          test "$status" = 124
+          test -s linux-diagnostics/boot.txt
+          cat linux-diagnostics/frame.bmp.log
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          data = Path('linux-diagnostics/frame.bmp').read_bytes()
+          offset = struct.unpack_from('<I', data, 10)[0]
+          w, h = struct.unpack_from('<ii', data, 18)
+          stride = (w*3+3)&~3
+          pixels = [data[offset+y*stride+x*3:offset+y*stride+x*3+3] for y in range(0,h,12) for x in range(0,w,12)]
+          lit = sum(sum(p)>75 for p in pixels)
+          print(f'LINUX_GUEST_FRAME: {w}x{h}, lit={lit}/{len(pixels)}, colours={len(set(pixels))}')
+          assert lit >= max(8,len(pixels)*0.004) and len(set(pixels)) >= 4
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Play-linux-render-control
+          path: linux-diagnostics/
+          retention-days: 3

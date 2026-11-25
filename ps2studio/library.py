@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-IMAGE_EXTENSIONS = frozenset({".iso", ".chd", ".cso", ".zso", ".gz", ".cue", ".bin", ".mdf"})
+IMAGE_EXTENSIONS = frozenset({".iso", ".chd", ".cso", ".zso", ".gz", ".cue", ".bin", ".mdf", ".elf"})
 
 
 @dataclass(frozen=True)

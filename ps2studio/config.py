@@ -20,7 +20,6 @@ def default_config_path() -> Path:
 
 @dataclass
 class AppConfig:
-    pcsx2_path: str = ""
     game_directories: list[str] = field(default_factory=list)
     fullscreen: bool = False
     recursive: bool = True
@@ -31,14 +30,12 @@ class AppConfig:
     def from_dict(cls, data: object) -> "AppConfig":
         if not isinstance(data, dict):
             raise ConfigError("El archivo de ajustes debe contener un objeto JSON.")
-        exe = data.get("pcsx2_path", "")
+        # Ignore obsolete emulator paths when loading older settings.
         dirs = data.get("game_directories", [])
         fullscreen = data.get("fullscreen", False)
         recursive = data.get("recursive", True)
         favorites = data.get("favorites", [])
         covers = data.get("covers", {})
-        if not isinstance(exe, str):
-            raise ConfigError("pcsx2_path debe ser texto.")
         if not isinstance(dirs, list) or any(not isinstance(d, str) for d in dirs):
             raise ConfigError("game_directories debe ser una lista de rutas.")
         if not isinstance(favorites, list) or any(not isinstance(value, str) or not value for value in favorites):
@@ -47,7 +44,7 @@ class AppConfig:
             raise ConfigError("covers debe ser un mapa de rutas de juegos a rutas de imágenes.")
         if not isinstance(fullscreen, bool) or not isinstance(recursive, bool):
             raise ConfigError("fullscreen y recursive deben ser booleanos.")
-        return cls(pcsx2_path=exe, game_directories=list(dict.fromkeys(dirs)),
+        return cls(game_directories=list(dict.fromkeys(dirs)),
                    fullscreen=fullscreen, recursive=recursive,
                    favorites=list(dict.fromkeys(favorites)), covers=dict(covers))
 

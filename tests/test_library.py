@@ -15,6 +15,13 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual({g.path.suffix.lower() for g in games}, {".iso", ".chd", ".cso", ".zso", ".bin"})
             self.assertEqual(len(games), 5)
 
+    def test_homebrew_elf_is_discovered(self):
+        with tempfile.TemporaryDirectory() as folder:
+            homebrew = Path(folder) / "Cubes_Homebrew.ELF"
+            homebrew.write_bytes(b"test")
+            self.assertEqual([game.title for game in scan_games([folder])], ["Cubes Homebrew"])
+            self.assertEqual([game.format for game in scan_games([folder])], ["ELF"])
+
     def test_overlapping_roots_do_not_duplicate_games(self):
         with tempfile.TemporaryDirectory() as folder:
             nested = Path(folder) / "nested"
