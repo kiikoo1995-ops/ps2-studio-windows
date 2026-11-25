@@ -173,3 +173,18 @@ capture = r'''
 '''
 gl_text = gl_text.replace(flip_anchor, capture + flip_anchor, 1)
 gl_source.write_text(gl_text, encoding="utf-8")
+
+# CI-only: upstream skips presentation when display registers are unchanged.
+# A guest can draw repeatedly into the same buffer without changing those
+# registers. Force presentation for the diagnostic run, not normal gameplay.
+gs_source = Path(sys.argv[1]) / "Source/gs/GSHandler.cpp"
+gs_text = gs_source.read_text(encoding="utf-8")
+gs_anchor = "if(force || m_regsDirty)"
+if gs_text.count(gs_anchor) != 1:
+    raise SystemExit("Unexpected GS flip scheduling anchor")
+gs_text = "#include <cstdlib>\n" + gs_text.replace(
+    gs_anchor,
+    'if(force || m_regsDirty || std::getenv("PS2STUDIO_CI_FRAME_PATH"))',
+    1,
+)
+gs_source.write_text(gs_text, encoding="utf-8")
