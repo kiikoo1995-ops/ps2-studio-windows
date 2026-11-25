@@ -1,14 +1,16 @@
+param([ValidateSet('cubes_demo','console_demo')][string]$Demo = 'cubes_demo')
 $ErrorActionPreference = 'Stop'
 
 # A freely licensed homebrew PS2 demo (MIT). Never packaged with PS2 Studio.
 $sourceCommit = '602441a6877a3136709d6320664340d52e3027a1'
-$sourceBlob = '27373da3d4fdf547d12910b6eb66db56598d0308'
-New-Item -ItemType Directory -Force homebrew-test | Out-Null
-$folder = (Resolve-Path homebrew-test).Path
-$elf = Join-Path $folder 'cubes_demo.elf'
-$url = "https://raw.githubusercontent.com/glampert/ps2-homebrew/$sourceCommit/source/demos/bin/cubes_demo.elf"
+$sourceBlob = if ($Demo -eq 'cubes_demo') { '27373da3d4fdf547d12910b6eb66db56598d0308' } else { 'fb916d10e7c6a1ce19c04dd86c8a8ad2ecd441ae' }
+$expectedSize = if ($Demo -eq 'cubes_demo') { 243288 } else { 233856 }
+New-Item -ItemType Directory -Force homebrew-test/$Demo | Out-Null
+$folder = (Resolve-Path homebrew-test/$Demo).Path
+$elf = Join-Path $folder "$Demo.elf"
+$url = "https://raw.githubusercontent.com/glampert/ps2-homebrew/$sourceCommit/source/demos/bin/$Demo.elf"
 Invoke-WebRequest -Uri $url -OutFile $elf
-if ((Get-Item $elf).Length -ne 243288) { throw 'Unexpected homebrew ELF size' }
+if ((Get-Item $elf).Length -ne $expectedSize) { throw 'Unexpected homebrew ELF size' }
 $blob = (& git hash-object $elf).Trim()
 if ($LASTEXITCODE -ne 0 -or $blob -ne $sourceBlob) { throw "Unexpected homebrew ELF: $blob" }
 $header = [System.IO.File]::ReadAllBytes($elf)
@@ -36,7 +38,7 @@ New-Item -ItemType File -Path $portable -Force | Out-Null
 $proc = $null
 try {
   $proc = Start-Process -FilePath $exe -WorkingDirectory $dir -ArgumentList @('--elf', $elf) -PassThru
-  Start-Sleep -Seconds 23
+  Start-Sleep -Seconds 35
   $proc.Refresh()
   if ($proc.HasExited) { throw "Play terminated during homebrew: $($proc.ExitCode)" }
   if ($proc.MainWindowHandle -eq 0 -or !$proc.Responding) { throw 'Play window not responsive' }

@@ -106,7 +106,8 @@ capture = r'''
         const auto height = m_presentationParams.windowHeight;
         ++studioFlips;
         studioTiming << studioUs << '\t' << (framebuffer ? 1 : 0) << '\t' << m_fbScale << '\n';
-        if(studioFlips == 1 || studioFlips % 30 == 0)
+        studioTiming.flush();
+        if(studioFlips <= 10 || studioFlips % 30 == 0)
         {
             const auto renderer = glGetString(GL_RENDERER);
             studioLog << "flip=" << studioFlips << " layer_enabled=" << dispLayer.enabled
@@ -119,7 +120,7 @@ capture = r'''
         // Keep evidence even if black. Try early and periodically to avoid
         // assuming a particular guest generates 120 display flips.
         if(!studioCaptured && framebuffer && width >= 128 && height >= 128 &&
-           width <= 4096 && height <= 4096 && (studioFlips <= 3 || studioFlips % 30 == 0))
+           width <= 4096 && height <= 4096 && (studioFlips <= 10 || studioFlips % 30 == 0))
         {
             try
             {
