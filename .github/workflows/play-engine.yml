@@ -196,10 +196,15 @@ jobs:
           export PS2STUDIO_CI_STATS_FILE="$PWD/linux-diagnostics/stats.tsv"
           export HOME="$RUNNER_TEMP/play-control-home"
           mkdir -p "$HOME"
+          # Hosted runners have no physical sound card. Use ALSA's null PCM.
+          printf 'pcm.!default { type null }\nctl.!default { type hw card 0 }\n' > "$HOME/.asoundrc"
+          export ALSOFT_DRIVERS=null
           set +e
           timeout 45s xvfb-run -a "$exe" --elf "$PWD/linux-diagnostics/cubes.elf" >linux-diagnostics/process.log 2>&1
           status=$?
           set -e
+          cat linux-diagnostics/process.log
+          echo "Guest process exit: $status"
           test "$status" = 124
           test -s linux-diagnostics/boot.txt
           cat linux-diagnostics/frame.bmp.log
