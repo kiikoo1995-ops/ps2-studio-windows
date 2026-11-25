@@ -124,12 +124,66 @@ capture = r'''
         {
             try
             {
+                // Separate GS texture content from the final presentation target.
+                GLint studioOldRead = 0, studioOldDraw = 0, studioOldActive = 0, studioOldTexture = 0;
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &studioOldRead);
+                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &studioOldDraw);
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &studioOldActive);
+                glActiveTexture(GL_TEXTURE0);
+                glGetIntegerv(GL_TEXTURE_BINDING_2D, &studioOldTexture);
+                for(unsigned int i = 0; i < 8; i++) { if(glGetError() == GL_NO_ERROR) break; }
+                glBindTexture(GL_TEXTURE_2D, framebuffer->m_texture);
+                GLint studioTW = 0, studioTH = 0;
+                glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &studioTW);
+                glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &studioTH);
+                if(studioTW > 0 && studioTH > 0 && studioTW <= 4096 && studioTH <= 4096)
+                {
+                    std::vector<unsigned char> studioTex(size_t(studioTW) * studioTH * 4);
+                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, studioTex.data());
+                    const auto studioTexErr = glGetError();
+                    size_t studioLit = 0;
+                    for(size_t i = 0; i < studioTex.size(); i += 4)
+                        if(unsigned(studioTex[i]) + studioTex[i+1] + studioTex[i+2] > 75) ++studioLit;
+                    studioLog << "GS_TEXTURE size=" << studioTW << "x" << studioTH << " error=" << studioTexErr << " lit=" << studioLit << std::endl;
+                }
+                // Independent known-colour texture attached to a temporary read FBO.
+                static bool studioControlDone = false;
+                if(!studioControlDone)
+                {
+                    studioControlDone = true;
+                    GLuint studioTexId = 0, studioFbo = 0;
+                    glGenTextures(1, &studioTexId);
+                    glBindTexture(GL_TEXTURE_2D, studioTexId);
+                    const unsigned char studioKnown[4] = { 23, 97, 211, 255 };
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, studioKnown);
+                    glGenFramebuffers(1, &studioFbo);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, studioFbo);
+                    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, studioTexId, 0);
+                    glReadBuffer(GL_COLOR_ATTACHMENT0);
+                    const auto studioStatus = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+                    unsigned char studioActual[4] = {};
+                    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, studioActual);
+                    const auto studioControlErr = glGetError();
+                    studioLog << "READBACK_CONTROL status=" << studioStatus << " error=" << studioControlErr
+                              << " rgb=" << unsigned(studioActual[0]) << "," << unsigned(studioActual[1]) << "," << unsigned(studioActual[2])
+                              << " pass=" << (studioStatus == GL_FRAMEBUFFER_COMPLETE && studioControlErr == GL_NO_ERROR &&
+                                  studioActual[0] == 23 && studioActual[1] == 97 && studioActual[2] == 211) << std::endl;
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, studioOldRead);
+                    glDeleteFramebuffers(1, &studioFbo);
+                    glDeleteTextures(1, &studioTexId);
+                }
+                glBindTexture(GL_TEXTURE_2D, studioOldTexture);
+                glActiveTexture(studioOldActive);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, studioOldDraw);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, studioOldRead);
                 glBindFramebuffer(GL_FRAMEBUFFER, m_presentFramebuffer);
                 for(unsigned int i = 0; i < 8; i++) { if(glGetError() == GL_NO_ERROR) break; }
                 std::vector<unsigned char> rgba(size_t(width) * height * 4);
                 glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
                 const auto error = glGetError();
                 studioLog << "readback=" << error << " flip=" << studioFlips << std::endl;
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, studioOldDraw);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, studioOldRead);
                 if(error == GL_NO_ERROR)
                 {
                     // Write standard 24-bit bottom-up BMP ourselves, so a
